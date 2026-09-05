@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">ASCEND</string>
+    <string name="google_oauth_web_client_id">CONFIGURE_IN_FIREBASE</string>
+</resources>

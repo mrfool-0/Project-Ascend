@@ -1,0 +1,23 @@
+# Android Studio and local SDK configuration
+.idea/
+*.iml
+local.properties
+
+# Gradle and Kotlin build state
+.gradle/
+.kotlin/
+**/build/
+
+# Signing credentials and private service configuration
+*.jks
+*.keystore
+google-services.json
+**/google-services.json
+
+# Generated project artifacts
+outputs/
+work/
+
+# Platform files
+.DS_Store
+
