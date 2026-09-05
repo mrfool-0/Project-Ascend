@@ -57,7 +57,7 @@ private enum class MainDestination(val route: String, val label: String, val ico
     NUTRITION("nutrition", "NUTRITION", Icons.Outlined.Restaurant),
     PROGRESS("progress", "PROGRESS", Icons.AutoMirrored.Outlined.ShowChart),
     HABITS("habits", "HABITS", Icons.Outlined.CheckCircleOutline),
-    COACH("coach", "COACH", Icons.Outlined.Psychology),
+    SYSTEM("system", "SYSTEM", Icons.Outlined.SmartToy),
 }
 
 @Composable
@@ -83,7 +83,7 @@ private fun MainNavigation(viewModel: AscendViewModel, preferences: com.ascend.a
     val unlocked by viewModel.unlockedAchievements.collectAsStateWithLifecycle()
     val activeWorkout by viewModel.activeWorkout.collectAsStateWithLifecycle()
     val activeSets by viewModel.activeSets.collectAsStateWithLifecycle()
-    val coachMessages by viewModel.coachMessages.collectAsStateWithLifecycle()
+    val systemMessages by viewModel.systemMessages.collectAsStateWithLifecycle()
     val backStack by navController.currentBackStackEntryAsState()
     val route = backStack?.destination?.route
     val snackbarHost = remember { SnackbarHostState() }
@@ -148,7 +148,7 @@ private fun MainNavigation(viewModel: AscendViewModel, preferences: com.ascend.a
                 }
                 composable(MainDestination.PROGRESS.route) { ProgressScreen(state, viewModel::logWeight) }
                 composable(MainDestination.HABITS.route) { HabitsScreen(state, viewModel::toggleHabit, viewModel::createHabit) }
-                composable(MainDestination.COACH.route) { CoachScreen(state, coachMessages, viewModel::sendCoachMessage, viewModel::clearCoachMessages) }
+                composable(MainDestination.SYSTEM.route) { SystemScreen(state, systemMessages, viewModel::sendSystemMessage, viewModel::clearSystemMessages) }
                 composable("workout") {
                     WorkoutScreen(activeWorkout, activeSets, { navController.popBackStack() }, viewModel::updateSet, viewModel::addWorkoutExercise, viewModel::removeWorkoutExercise) {
                         viewModel.completeWorkout { navController.popBackStack(MainDestination.HOME.route, false) }

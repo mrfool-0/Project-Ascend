@@ -79,7 +79,7 @@ fun ProfileSettingsScreen(
                             "THEME" -> Text("VOID is active. CRIMSON, FROST, EMERALD and GOLD are prepared for future releases.", color = TextSecondary)
                             "HEALTH CONNECT" -> HealthConnectSettings(preferences.healthConnectEnabled, onHealthConnect)
                             "DATA MANAGEMENT" -> Text(if (state.profile?.googleAccountEmail != null) "Local-first storage with an opt-in Firebase progress snapshot linked to ${state.profile.googleAccountEmail}. No analytics, ads, or silent health upload." else "All information is stored locally. Google cloud save was not linked; no health data is uploaded.", color = TextSecondary)
-                            "ABOUT" -> Text("ASCEND 1.1\nTURN YOUR LIFE INTO A QUEST\nOriginal ASCEND SYSTEM UI. Nutrition and coaching outputs are planning guidance, not medical advice.", color = TextSecondary)
+                            "ABOUT" -> Text("ASCEND 1.2\nTURN YOUR LIFE INTO A QUEST\nOriginal ASCEND SYSTEM UI. SYSTEM and nutrition outputs are planning guidance, not medical advice.", color = TextSecondary)
                         }
                     }
                 }

@@ -284,7 +284,7 @@ data class DailySummaryEntity(
 )
 
 @Entity(tableName = "coach_message", indices = [Index("createdAt")])
-data class CoachMessageEntity(
+data class SystemMessageEntity(
     @PrimaryKey val id: String,
     val role: String,
     val message: String,

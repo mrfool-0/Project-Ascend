@@ -96,7 +96,8 @@ interface AscendDao {
     @Query("SELECT * FROM daily_summary ORDER BY localDate") fun observeDailySummaries(): Flow<List<DailySummaryEntity>>
     @Query("SELECT * FROM daily_summary WHERE localDate BETWEEN :start AND :end ORDER BY localDate") suspend fun dailySummariesBetween(start: String, end: String): List<DailySummaryEntity>
 
-    @Query("SELECT * FROM coach_message ORDER BY createdAt") fun observeCoachMessages(): Flow<List<CoachMessageEntity>>
-    @Insert suspend fun insertCoachMessage(value: CoachMessageEntity)
-    @Query("DELETE FROM coach_message") suspend fun clearCoachMessages()
+    @Query("SELECT * FROM coach_message ORDER BY createdAt") fun observeSystemMessages(): Flow<List<SystemMessageEntity>>
+    @Query("SELECT * FROM coach_message ORDER BY createdAt DESC LIMIT :limit") suspend fun recentSystemMessages(limit: Int = 8): List<SystemMessageEntity>
+    @Insert suspend fun insertSystemMessage(value: SystemMessageEntity)
+    @Query("DELETE FROM coach_message") suspend fun clearSystemMessages()
 }

@@ -10,6 +10,7 @@ import com.ascend.app.core.datastore.AppPreferences
 import com.ascend.app.core.notifications.ReminderScheduler
 import com.ascend.app.domain.HabitType
 import com.ascend.app.domain.MealType
+import com.ascend.app.domain.SystemTone
 import com.ascend.app.ui.screens.NewFoodInput
 import com.ascend.app.ui.screens.NewHabitInput
 import com.ascend.app.ui.screens.NewExerciseInput
@@ -37,7 +38,7 @@ class AscendViewModel(application: Application, private val repository: AscendRe
     val quests = repository.quests().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val achievements = repository.achievements().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val unlockedAchievements = repository.unlockedAchievements().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-    val coachMessages = repository.coachMessages().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val systemMessages = repository.systemMessages().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val _activeWorkout = MutableStateFlow<WorkoutLaunch?>(null)
     val activeWorkout: StateFlow<WorkoutLaunch?> = _activeWorkout.asStateFlow()
@@ -123,8 +124,8 @@ class AscendViewModel(application: Application, private val repository: AscendRe
     fun logSavedMeal(mealId: String, meal: MealType) = launchAction { repository.logSavedMeal(mealId, meal, today); _events.emit(UiEvent.Message("Saved meal added")) }
     fun logWeight(weight: Double, note: String) = launchAction { repository.addWeight(weight, today, note); _events.emit(UiEvent.Message("Weight recorded • +15 XP")) }
     fun updateTargets(calories: Int, protein: Int, carbs: Int, fat: Int, water: Int) = launchAction { repository.updateNutritionTargets(calories, protein, carbs, fat, water) }
-    fun sendCoachMessage(message: String) = launchAction { repository.sendCoachMessage(message, today) }
-    fun clearCoachMessages() = launchAction { repository.clearCoachMessages() }
+    fun sendSystemMessage(message: String, tone: SystemTone) = launchAction { repository.sendSystemMessage(message, tone, today) }
+    fun clearSystemMessages() = launchAction { repository.clearSystemMessages() }
 
     fun updateNotification(category: String, enabled: Boolean) = launchAction {
         repository.updateNotification(category, enabled)

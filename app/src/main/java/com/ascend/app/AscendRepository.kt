@@ -1,10 +1,12 @@
 package com.ascend.app
 
 import com.ascend.app.cloud.GoogleProgressService
+import com.ascend.app.cloud.SystemAiService
 import com.ascend.app.core.database.*
 import com.ascend.app.core.datastore.AppPreferences
 import com.ascend.app.core.datastore.UserPreferences
 import com.ascend.app.domain.*
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import java.time.LocalDate
 import java.time.Period
@@ -85,6 +87,7 @@ class AscendRepository(
     private val dao: AscendDao,
     val preferences: UserPreferences,
     private val cloudProgress: GoogleProgressService,
+    private val systemAi: SystemAiService,
 ) {
     fun preferencesFlow(): Flow<AppPreferences> = preferences.values
     fun foods(): Flow<List<FoodEntity>> = dao.observeFoods()
@@ -101,7 +104,7 @@ class AscendRepository(
     fun questCompletions(date: LocalDate): Flow<List<QuestCompletionEntity>> = dao.observeQuestCompletions(date.toString())
     fun xpLedger(): Flow<List<XpTransactionEntity>> = dao.observeXpLedger()
     fun workoutSets(sessionId: String): Flow<List<WorkoutSetEntity>> = dao.observeWorkoutSets(sessionId)
-    fun coachMessages(): Flow<List<CoachMessageEntity>> = dao.observeCoachMessages()
+    fun systemMessages(): Flow<List<SystemMessageEntity>> = dao.observeSystemMessages()
 
     fun dashboard(today: LocalDate): Flow<DashboardState> {
         val core = combine(
@@ -171,8 +174,8 @@ class AscendRepository(
         dao.insertWeight(WeightEntryEntity(id(), input.weightKg, LocalDate.now().toString(), System.currentTimeMillis(), "Starting weight"))
         seedCustomWorkoutProgram(input)
         seedCoreData()
-        dao.insertCoachMessage(
-            CoachMessageEntity(
+        dao.insertSystemMessage(
+            SystemMessageEntity(
                 id(), "SYSTEM",
                 "Player profile synchronized. I built your ${input.workoutFrequency}-day protocol around ${input.focusAreas.joinToString { it.name.lowercase().replace('_', ' ') }}. Ask me about today's training, calories, protein, recovery, or consistency.",
                 now(),
@@ -209,10 +212,12 @@ class AscendRepository(
 
     suspend fun findFoodByBarcode(barcode: String): FoodEntity? = dao.foodByBarcode(barcode.trim())
 
-    suspend fun sendCoachMessage(message: String, date: LocalDate) {
+    suspend fun sendSystemMessage(message: String, tone: SystemTone, date: LocalDate) {
         val clean = message.trim()
         require(clean.isNotEmpty() && clean.length <= 500) { "Message must be between 1 and 500 characters" }
-        dao.insertCoachMessage(CoachMessageEntity(id(), "PLAYER", clean, now()))
+        val conversation = dao.recentSystemMessages().sortedBy { it.createdAt }
+        val conversationHistory = conversation.filter { it.role == "PLAYER" }.map { it.message }
+        dao.insertSystemMessage(SystemMessageEntity(id(), "PLAYER", clean, now()))
         val profile = dao.observeProfile().first() ?: return
         val target = dao.observeNutritionTarget().first() ?: return
         val totals = dao.observeFoodLogs(date.toString()).first().toTotals()
@@ -220,21 +225,30 @@ class AscendRepository(
         val scheduledDays = profile.workoutDays.split(',').mapNotNull { it.toIntOrNull() }.map { DayOfWeek.of(it) }.toSet()
         val index = CustomPlanEngine.templateIndexFor(date, LocalDate.parse(profile.programStartDate), scheduledDays)
         val workout = dao.templateForIndex(index)?.name ?: "RECOVERY PROTOCOL"
-        val response = CoachEngine.respond(
-            clean,
-            CoachContext(
-                profile.displayName, Objective.valueOf(profile.objective), target.calories, target.proteinGrams,
-                totals.calories, totals.protein, summary.waterMl, target.waterMl,
-                StreakEngine.calculate(dao.observeDailySummaries().first().filter { it.completionPercent >= 50 }.map { LocalDate.parse(it.localDate) }, date).current,
-                workout,
-                profile.injuries.split(',').mapNotNull { runCatching { InjuryArea.valueOf(it) }.getOrNull() }.toSet(),
-                profile.coreReason,
-            ),
+        val tomorrowIndex = CustomPlanEngine.templateIndexFor(date.plusDays(1), LocalDate.parse(profile.programStartDate), scheduledDays)
+        val tomorrowWorkout = dao.templateForIndex(tomorrowIndex)?.name ?: "RECOVERY PROTOCOL"
+        val systemContext = SystemContext(
+            profile.displayName, Objective.valueOf(profile.objective), target.calories, target.proteinGrams,
+            totals.calories, totals.protein, summary.waterMl, target.waterMl,
+            StreakEngine.calculate(dao.observeDailySummaries().first().filter { it.completionPercent >= 50 }.map { LocalDate.parse(it.localDate) }, date).current,
+            workout, tomorrowWorkout, profile.workoutFrequency,
+            profile.focusAreas.split(',').mapNotNull { runCatching { FocusArea.valueOf(it) }.getOrNull() }.toSet(),
+            profile.injuries.split(',').mapNotNull { runCatching { InjuryArea.valueOf(it) }.getOrNull() }.toSet(),
+            profile.coreReason, profile.futureVision, profile.minimumPromise, conversationHistory,
         )
-        dao.insertCoachMessage(CoachMessageEntity(id(), "SYSTEM", response, now() + 1))
+        val localResponse = SystemEngine.respond(
+            clean,
+            systemContext,
+            tone,
+        )
+        val response = if (SystemEngine.requiresImmediateSafetyResponse(clean)) localResponse else {
+            systemAi.respond(clean, systemContext, tone, conversation).getOrDefault(localResponse)
+        }
+        delay(420)
+        dao.insertSystemMessage(SystemMessageEntity(id(), "SYSTEM", response, now() + 1))
     }
 
-    suspend fun clearCoachMessages() = dao.clearCoachMessages()
+    suspend fun clearSystemMessages() = dao.clearSystemMessages()
 
     suspend fun createFoodAndLog(
         name: String, servingQuantity: Double, unit: String, calories: Double,

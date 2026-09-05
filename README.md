@@ -11,11 +11,11 @@ ASCEND is an offline-first native Android health, training, nutrition, habit, an
 - Level 1–100 progression, eleven original ranks, a durable XP ledger, duplicate-source protection, streaks and achievements
 - A custom 2–6 day program generated from focus, experience, equipment, schedule and reported limitations; other days automatically use the recovery protocol
 - Workout session logging for every set, weight and rep; rest timer; completion rewards; progression suggestions and PR detection
-- A searchable offline catalog of everyday foods, meal logging, scaled servings, saved meals, hydration and Google Code Scanner barcode capture; unknown products can be entered once and remembered
+- A searchable offline catalog of everyday foods, meal logging, scaled servings, saved meals and hydration, plus an opt-in Firebase AI Logic photo scanner that identifies a visible meal and estimates calories and nutrients for review before saving
 - Checkbox, number, duration and avoidance habit models with configurable difficulty and a 75 XP daily anti-farming cap
 - Body-weight logging, trend-focused charting, 7-day averages, consistency heatmap, training/nutrition summaries and ASCEND game scores
 - Daily and weekly quest ledger, rank badges, level-up/quest/PR presentation, configurable WorkManager reminders, and settings
-- A persistent on-device health/nutrition coach with contextual guidance based on the player's plan, daily intake and streak, medical-safety boundaries, quick prompts and conversation history
+- ASCEND SYSTEM, a context-aware Firebase AI Logic chatbot with a capable on-device fallback; it understands natural fitness questions and follow-ups, reads the player's plan and live daily totals, offers Ally/Command/Ruthless voice modes, preserves local emergency safeguards, and renders robotic typewriter responses
 - Room persistence and Preferences DataStore; no analytics, ads, or mandatory network access
 - Optional Credential Manager Google sign-in with Firebase Authentication/Firestore progress snapshots; private offline mode remains fully supported
 - Optional Health Connect boundary in settings. V1 deliberately does not request health permissions or include a Health Connect runtime dependency.
@@ -111,8 +111,8 @@ Local unit tests cover:
 
 ## Privacy and safety
 
-ASCEND is local-first and has no advertising, tracking, analytics, or external food lookup API. Google sign-in/cloud save is optional and remains inert until the publisher supplies a Firebase project and the player consents. The coach is a deterministic on-device guidance engine rather than a clinician or unrestricted medical model. Injury answers conservatively substitute relevant movement patterns and surface medical-clearance guidance where appropriate. Nutrition values are reference estimates and packaging labels remain authoritative.
+ASCEND is local-first and has no advertising, tracking, analytics, or external food lookup API. Google sign-in/cloud save is optional and remains inert until the publisher supplies a Firebase project and the player consents. When Firebase AI Logic is configured, SYSTEM sends the player's message and compact plan context for natural-language replies, and Food Vision sends only the photo the player explicitly chooses; local safety responses and the offline chatbot remain available without it. SYSTEM is not a clinician. Injury answers conservatively surface medical-clearance guidance where appropriate. Nutrition and photo-analysis values are estimates, and packaging labels remain authoritative.
 
 ## Roadmap
 
-The repository interfaces leave room for opt-in Health Connect import, a verified online food database, camera-based meal estimation, encrypted export, alternative themes, richer body measurements, editable programs and wearable support. Social systems, leaderboards and subscriptions remain outside this release.
+The repository interfaces leave room for opt-in Health Connect import, a verified online food database, encrypted export, alternative themes, richer body measurements, editable programs and wearable support. Social systems, leaderboards and subscriptions remain outside this release.

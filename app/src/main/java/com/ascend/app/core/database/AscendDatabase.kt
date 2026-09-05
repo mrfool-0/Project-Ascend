@@ -16,7 +16,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         WorkoutSetEntity::class, HabitEntity::class, HabitCompletionEntity::class,
         QuestEntity::class, QuestCompletionEntity::class, XpTransactionEntity::class,
         AchievementEntity::class, UnlockedAchievementEntity::class, DailySummaryEntity::class,
-        CoachMessageEntity::class,
+        SystemMessageEntity::class,
     ],
     version = 3,
     exportSchema = true,

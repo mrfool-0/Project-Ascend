@@ -1,5 +1,9 @@
 package com.ascend.app.ui.screens
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -19,6 +23,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.ascend.app.DashboardState
+import com.ascend.app.cloud.FoodVisionResult
+import com.ascend.app.cloud.FoodVisionService
 import com.ascend.app.core.database.FoodEntity
 import com.ascend.app.core.database.FoodLogEntity
 import com.ascend.app.core.database.FoodLogWithFood
@@ -26,10 +32,10 @@ import com.ascend.app.core.database.SavedMealEntity
 import com.ascend.app.domain.MealType
 import com.ascend.app.ui.components.*
 import com.ascend.app.ui.theme.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.LocalDate
-import com.google.mlkit.vision.barcode.common.Barcode
-import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
-import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 
 data class NewFoodInput(
     val name: String, val servingQuantity: Double, val servingUnit: String,
@@ -177,39 +183,68 @@ private fun FoodDialog(
     var sodium by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var search by remember { mutableStateOf("") }
-    var scannedBarcode by remember { mutableStateOf<String?>(null) }
-    var scanning by remember { mutableStateOf(false) }
+    var analyzing by remember { mutableStateOf(false) }
+    var visionResult by remember { mutableStateOf<FoodVisionResult?>(null) }
     val context = LocalContext.current
-    val scanner = remember(context) {
-        val options = GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_ALL_FORMATS).enableAutoZoom().build()
-        GmsBarcodeScanning.getClient(context, options)
+    val scope = rememberCoroutineScope()
+    val foodVision = remember(context) { FoodVisionService(context.applicationContext) }
+
+    fun applyVisionResult(result: FoodVisionResult) {
+        visionResult = result
+        name = result.name
+        quantity = formatDecimal(result.servingGrams)
+        unit = "g"
+        calories = formatDecimal(result.calories)
+        protein = formatDecimal(result.protein)
+        carbs = formatDecimal(result.carbs)
+        fat = formatDecimal(result.fat)
+        fiber = formatDecimal(result.fiber)
+        sugar = formatDecimal(result.sugar)
+        saturatedFat = formatDecimal(result.saturatedFat)
+        sodium = formatDecimal(result.sodiumMg)
+        servings = "1"
+        tab = 1
+    }
+
+    fun analyzePhoto(bitmap: Bitmap) {
+        analyzing = true
+        visionResult = null
+        error = null
+        scope.launch {
+            foodVision.analyze(bitmap)
+                .onSuccess(::applyVisionResult)
+                .onFailure { error = it.message ?: "SYSTEM could not analyze this food photo" }
+            analyzing = false
+        }
+    }
+    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap ->
+        if (bitmap != null) analyzePhoto(bitmap) else error = "Camera did not return a photo"
+    }
+    val photoLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) scope.launch {
+            val bitmap = withContext(Dispatchers.IO) {
+                context.contentResolver.openInputStream(uri)?.use(BitmapFactory::decodeStream)
+            }
+            if (bitmap != null) analyzePhoto(bitmap) else error = "Unable to read that image"
+        }
     }
     Dialog(onDismissRequest = onDismiss) {
         Surface(shape = AngularShape, color = DeepSurface, border = androidx.compose.foundation.BorderStroke(1.dp, EnergyViolet.copy(.6f))) {
             Column(Modifier.padding(18.dp).fillMaxWidth()) {
                 Text("ADD TO ${meal.name}", style = MaterialTheme.typography.titleLarge)
                 Spacer(Modifier.height(8.dp))
-                SystemButton(
-                    if (scanning) "SCANNER ACTIVE…" else "SCAN PACKAGE BARCODE",
-                    {
-                        scanning = true; error = null
-                        scanner.startScan()
-                            .addOnSuccessListener { barcode ->
-                                scanning = false
-                                val code = barcode.rawValue.orEmpty()
-                                val match = foods.firstOrNull { it.barcode == code }
-                                if (match != null) { onExisting(match, 1.0, meal); onDismiss() }
-                                else {
-                                    scannedBarcode = code.takeIf(String::isNotBlank)
-                                    tab = 1
-                                    error = if (code.isBlank()) "No readable food barcode found" else "New barcode $code — add the label values once and ASCEND will remember it"
-                                }
-                            }
-                            .addOnFailureListener { scanning = false; error = it.message ?: "Scanner unavailable" }
-                            .addOnCanceledListener { scanning = false }
-                    },
-                    Modifier.fillMaxWidth(), enabled = !scanning, secondary = true,
-                )
+                Text("VISION FOOD SCAN", style = MaterialTheme.typography.labelMedium, color = EnergyCyan)
+                Text("Photograph the full plate. SYSTEM identifies the food and estimates the visible portion, calories, macros, fiber, sugar, saturated fat, and sodium.", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SystemButton(if (analyzing) "ANALYZING…" else "CAMERA", { cameraLauncher.launch(null) }, Modifier.weight(1f), enabled = !analyzing, secondary = true)
+                    SystemButton("GALLERY", { photoLauncher.launch("image/*") }, Modifier.weight(1f), enabled = !analyzing, secondary = true)
+                }
+                if (analyzing) {
+                    Spacer(Modifier.height(7.dp))
+                    LinearProgressIndicator(Modifier.fillMaxWidth(), color = EnergyCyan, trackColor = Hairline)
+                }
+                Text("Photo analysis is approximate and is sent to Firebase AI Logic only when you choose a photo. Review every value before logging.", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
                 PrimaryTabRow(tab, containerColor = Color.Transparent) {
                     Tab(tab == 0, { tab = 0 }, text = { Text("CATALOG") })
                     Tab(tab == 1, { tab = 1 }, text = { Text("CREATE") })
@@ -243,7 +278,10 @@ private fun FoodDialog(
                     }
                 } else if (tab == 1) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        scannedBarcode?.let { Text("SCANNED CODE  $it", style = MaterialTheme.typography.labelMedium, color = EnergyCyan) }
+                        visionResult?.let { result ->
+                            Text("VISION ESTIMATE • ${(result.confidence * 100).toInt()}% CONFIDENCE • ${result.servingDescription}", style = MaterialTheme.typography.labelMedium, color = EnergyCyan)
+                            Text(result.notes, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                        }
                         AscendTextField(name, { name = it }, "FOOD NAME")
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             AscendTextField(quantity, { quantity = it }, "SERVING", true, Modifier.weight(1f))
@@ -273,7 +311,7 @@ private fun FoodDialog(
                                 NewFoodInput(
                                     name, quantity.toDouble(), unit, calories.toDouble(),
                                     protein.toDoubleOrNull() ?: 0.0, carbs.toDoubleOrNull() ?: 0.0,
-                                    fat.toDoubleOrNull() ?: 0.0, servings.toDouble(), meal, scannedBarcode,
+                                    fat.toDoubleOrNull() ?: 0.0, servings.toDouble(), meal, null,
                                     fiber.toDoubleOrNull(), sugar.toDoubleOrNull(), saturatedFat.toDoubleOrNull(), sodium.toDoubleOrNull(),
                                 )
                             }.onSuccess { onCreate(it); onDismiss() }.onFailure { error = "Enter valid food and serving values" }
@@ -342,3 +380,4 @@ fun NumberDialog(title: String, label: String, onDismiss: () -> Unit, onSubmit: 
 }
 
 private fun formatQuantity(value: Double): String = if (value % 1.0 == 0.0) value.toInt().toString() else "%.1f".format(value)
+private fun formatDecimal(value: Double): String = if (value % 1.0 == 0.0) value.toInt().toString() else "%.1f".format(value)
