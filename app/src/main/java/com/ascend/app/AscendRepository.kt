@@ -35,6 +35,7 @@ data class OnboardingProfile(
     val injuries: Set<InjuryArea>,
     val injuryNotes: String,
     val workoutFrequency: Int,
+    val trainingSplit: TrainingSplit,
     val workoutDays: Set<DayOfWeek>,
     val futureVision: String,
     val coreReason: String,
@@ -155,8 +156,7 @@ class AscendRepository(
         require(input.workoutFrequency in 2..6 && input.workoutDays.size == input.workoutFrequency) { "Workout days must match the selected frequency" }
         require(input.futureVision.isNotBlank() && input.coreReason.isNotBlank() && input.minimumPromise.isNotBlank()) { "Complete the mindset calibration" }
         require(input.targetWeightKg in 25.0..400.0) { "Target weight is outside the supported range" }
-        require(targets.calories in 1_000..10_000 && targets.proteinGrams in 1..1_000 && targets.carbohydrateGrams in 0..2_000 && targets.fatGrams in 0..500 && targets.waterMl in 500..6_000) { "Nutrition targets are outside supported ranges" }
-        require(targets.proteinGrams * 4 + targets.carbohydrateGrams * 4 + targets.fatGrams * 9 <= targets.calories * 1.5) { "Macro targets are not plausible for the calorie target" }
+        require(NutritionTargetRules.isValid(targets.calories, targets.proteinGrams, targets.carbohydrateGrams, targets.fatGrams, targets.waterMl)) { "Nutrition targets are outside supported ranges or do not align with macro energy" }
         dao.upsertProfile(
             UserProfileEntity(
                 displayName = input.name.trim(), birthDate = input.birthDate.toString(), heightCm = input.heightCm,
@@ -166,7 +166,7 @@ class AscendRepository(
                 dietPreference = input.diet.name, trainingTime = input.trainingTime.name,
                 focusAreas = input.focusAreas.joinToString(",") { it.name },
                 injuries = input.injuries.joinToString(",") { it.name }, injuryNotes = input.injuryNotes.trim(),
-                workoutFrequency = input.workoutFrequency,
+                workoutFrequency = input.workoutFrequency, trainingSplit = input.trainingSplit.name,
                 workoutDays = input.workoutDays.sortedBy { it.value }.joinToString(",") { it.value.toString() },
                 futureVision = input.futureVision.trim(), coreReason = input.coreReason.trim(),
                 minimumPromise = input.minimumPromise.trim(), googleAccountEmail = input.googleAccountEmail,
@@ -195,8 +195,7 @@ class AscendRepository(
     }
 
     suspend fun updateNutritionTargets(calories: Int, protein: Int, carbs: Int, fat: Int, waterMl: Int) {
-        require(calories in 1_000..10_000 && protein in 1..1_000 && carbs in 0..2_000 && fat in 0..500 && waterMl in 500..6_000)
-        require(protein * 4 + carbs * 4 + fat * 9 <= calories * 1.5) { "Macro targets are not plausible for the calorie target" }
+        require(NutritionTargetRules.isValid(calories, protein, carbs, fat, waterMl)) { "Nutrition targets are outside supported ranges or do not align with macro energy" }
         val current = dao.observeNutritionTarget().first() ?: return
         dao.upsertNutritionTarget(current.copy(calories = calories, proteinGrams = protein, carbohydrateGrams = carbs, fatGrams = fat, waterMl = waterMl, manuallyEdited = true))
         refreshDailyState(LocalDate.now())
@@ -211,7 +210,9 @@ class AscendRepository(
                 HabitEntity(id(), "No junk food", HabitType.AVOIDANCE.name, 1.0, "done", HabitDifficulty.MEDIUM.name, "DAILY", createdAt = now() + 2),
             ).forEach { dao.upsertHabit(it) }
         }
-        if (dao.observeFoods().first().isEmpty()) commonFoods().forEach { dao.upsertFood(it) }
+        // Stable IDs let upgrades add newly shipped staples while IGNORE preserves any existing
+        // catalog row and never collides with player-created foods (which use unique IDs).
+        commonFoods().forEach { dao.insertFoodIfAbsent(it) }
         dao.upsertQuests(defaultQuests(dao.observeProfile().first()?.workoutFrequency ?: 6))
         dao.insertAchievementsIfAbsent(defaultAchievements())
         val interrupted = dao.recentSystemMessages(1).firstOrNull()
@@ -265,6 +266,13 @@ class AscendRepository(
             todayWorkout = workout,
             tomorrowWorkout = tomorrowWorkout,
             workoutFrequency = profile.workoutFrequency,
+            bmr = target.estimatedBmr,
+            carbohydrateTarget = target.carbohydrateGrams,
+            fatTarget = target.fatGrams,
+            weeklySplit = dao.observeTemplates().first()
+                .filterNot { it.isRecovery }
+                .sortedBy { it.rotationIndex }
+                .joinToString(" → ") { it.name },
             focusAreas = profile.focusAreas.split(',').mapNotNull { runCatching { FocusArea.valueOf(it) }.getOrNull() }.toSet(),
             injuries = profile.injuries.split(',').mapNotNull { runCatching { InjuryArea.valueOf(it) }.getOrNull() }.toSet(),
             coreReason = profile.coreReason,
@@ -684,7 +692,7 @@ class AscendRepository(
         seedPlan(
             CustomPlanEngine.generate(
                 input.workoutFrequency, input.workoutDays, input.focusAreas,
-                input.injuries, input.equipment, input.experience, input.objective,
+                input.injuries, input.equipment, input.experience, input.objective, input.trainingSplit,
             ),
             input.equipment,
         )
@@ -734,38 +742,89 @@ class AscendRepository(
             food("Mango", 1.0, "cup", 99.0, 1.4, 24.7, .6, 2.6),
             food("Papaya", 1.0, "cup", 62.0, .7, 15.7, .4, 2.5),
             food("Mixed Berries", 1.0, "cup", 70.0, 1.0, 17.0, .5, 5.0),
+            food("Pear", 1.0, "medium", 101.0, .6, 27.0, .3, 5.5),
+            food("Grapes", 1.0, "cup", 104.0, 1.1, 27.3, .2, 1.4),
+            food("Watermelon", 1.0, "cup", 46.0, .9, 11.5, .2, .6),
+            food("Pineapple", 1.0, "cup", 82.0, .9, 21.6, .2, 2.3),
+            food("Guava", 1.0, "cup", 112.0, 4.2, 23.6, 1.6, 8.9),
+            food("Dates", 2.0, "pieces", 133.0, .9, 36.0, .1, 3.2),
             food("Whole Egg", 1.0, "egg", 72.0, 6.3, .4, 4.8),
             food("Egg Whites", 100.0, "g", 52.0, 10.9, .7, .2),
             food("Chicken Breast Cooked", 100.0, "g", 165.0, 31.0, 0.0, 3.6),
             food("Chicken Thigh Cooked", 100.0, "g", 209.0, 26.0, 0.0, 10.9),
+            food("Turkey Breast Cooked", 100.0, "g", 135.0, 29.0, 0.0, 1.8),
+            food("Lean Beef Cooked", 100.0, "g", 250.0, 26.0, 0.0, 15.0),
+            food("Ground Beef 90% Lean Cooked", 100.0, "g", 217.0, 26.1, 0.0, 11.8),
+            food("Beef Steak Sirloin Cooked", 100.0, "g", 244.0, 27.0, 0.0, 14.0),
+            food("Pork Loin Cooked", 100.0, "g", 242.0, 27.3, 0.0, 14.0),
+            food("Lamb Cooked", 100.0, "g", 294.0, 25.0, 0.0, 21.0),
             food("Salmon Cooked", 100.0, "g", 206.0, 22.0, 0.0, 12.0),
             food("Tuna Canned in Water", 100.0, "g", 116.0, 25.5, 0.0, .8),
+            food("White Fish Cooked", 100.0, "g", 128.0, 26.0, 0.0, 2.7),
+            food("Shrimp Cooked", 100.0, "g", 99.0, 24.0, .2, .3),
+            food("Sardines Canned", 100.0, "g", 208.0, 24.6, 0.0, 11.5),
             food("Paneer", 100.0, "g", 265.0, 18.3, 3.4, 20.8),
             food("Firm Tofu", 100.0, "g", 144.0, 17.3, 2.8, 8.7, 2.3),
             food("Greek Yogurt Plain", 100.0, "g", 97.0, 9.0, 3.9, 5.0),
+            food("Cottage Cheese", 100.0, "g", 98.0, 11.1, 3.4, 4.3),
+            food("Plain Yogurt", 100.0, "g", 61.0, 3.5, 4.7, 3.3),
+            food("Cheddar Cheese", 28.0, "g", 113.0, 7.0, .4, 9.3),
             food("Milk Whole", 250.0, "ml", 149.0, 7.7, 11.7, 8.0),
             food("Milk Low Fat", 250.0, "ml", 105.0, 8.5, 12.0, 2.5),
             food("Whey Protein", 1.0, "scoop", 120.0, 24.0, 3.0, 2.0),
             food("Cooked White Rice", 100.0, "g", 130.0, 2.7, 28.2, .3, .4),
             food("Cooked Brown Rice", 100.0, "g", 123.0, 2.7, 25.6, 1.0, 1.6),
+            food("Cooked Quinoa", 1.0, "cup", 222.0, 8.1, 39.4, 3.6, 5.2),
+            food("Cooked Couscous", 1.0, "cup", 176.0, 6.0, 36.0, .3, 2.2),
+            food("Cooked Barley", 1.0, "cup", 193.0, 3.5, 44.3, .7, 6.0),
             food("Roti Chapati", 1.0, "piece", 120.0, 3.5, 22.0, 2.5, 3.0),
+            food("Corn Tortilla", 1.0, "piece", 52.0, 1.4, 10.7, .7, 1.5),
+            food("Flour Tortilla", 1.0, "medium", 144.0, 3.8, 24.0, 4.0, 1.4),
             food("Cooked Oats", 1.0, "cup", 154.0, 6.0, 27.0, 3.2, 4.0),
             food("Whole Wheat Bread", 1.0, "slice", 81.0, 4.0, 13.8, 1.1, 1.9),
             food("Cooked Pasta", 100.0, "g", 157.0, 5.8, 30.9, .9, 1.8),
+            food("Cooked Rice Noodles", 100.0, "g", 109.0, .9, 24.9, .2, 1.0),
+            food("Cooked Egg Noodles", 100.0, "g", 138.0, 4.5, 25.2, 2.1, 1.2),
             food("Boiled Potato", 100.0, "g", 87.0, 1.9, 20.1, .1, 1.8),
             food("Sweet Potato Cooked", 100.0, "g", 90.0, 2.0, 20.7, .2, 3.3),
             food("Dal Cooked", 1.0, "cup", 230.0, 17.9, 39.9, .8, 15.6),
             food("Chana Masala", 1.0, "cup", 280.0, 14.0, 45.0, 6.0, 12.0),
             food("Rajma Curry", 1.0, "cup", 290.0, 15.0, 46.0, 6.0, 13.0),
+            food("Cooked Lentils", 1.0, "cup", 230.0, 17.9, 39.9, .8, 15.6),
+            food("Cooked Chickpeas", 1.0, "cup", 269.0, 14.5, 45.0, 4.2, 12.5),
+            food("Cooked Black Beans", 1.0, "cup", 227.0, 15.2, 40.8, .9, 15.0),
+            food("Cooked Kidney Beans", 1.0, "cup", 225.0, 15.3, 40.4, .9, 13.1),
+            food("Edamame Cooked", 1.0, "cup", 188.0, 18.5, 13.8, 8.1, 8.1),
+            food("Hummus", 2.0, "tbsp", 70.0, 2.0, 6.0, 5.0, 2.0),
             food("Idli", 1.0, "piece", 58.0, 2.0, 12.0, .4, .5),
             food("Plain Dosa", 1.0, "piece", 168.0, 4.0, 29.0, 4.0, 1.0),
             food("Poha", 1.0, "cup", 250.0, 5.0, 45.0, 6.0, 3.0),
             food("Upma", 1.0, "cup", 220.0, 6.0, 38.0, 5.0, 4.0),
+            food("Chicken Curry", 1.0, "cup", 300.0, 28.0, 12.0, 16.0, 3.0),
+            food("Vegetable Curry", 1.0, "cup", 220.0, 6.0, 28.0, 10.0, 7.0),
+            food("Chicken Biryani", 1.0, "cup", 360.0, 20.0, 45.0, 11.0, 3.0),
+            food("Vegetable Fried Rice", 1.0, "cup", 290.0, 7.0, 48.0, 8.0, 4.0),
+            food("Sushi Salmon Roll", 6.0, "pieces", 250.0, 10.0, 38.0, 7.0, 3.0),
+            food("Falafel", 4.0, "pieces", 230.0, 9.0, 24.0, 12.0, 7.0),
+            food("Chicken Taco", 1.0, "taco", 210.0, 14.0, 20.0, 8.0, 3.0),
+            food("Beef Burger", 1.0, "burger", 540.0, 30.0, 40.0, 29.0, 3.0),
+            food("Cheese Pizza", 1.0, "slice", 285.0, 12.0, 36.0, 10.0, 2.5),
+            food("Chicken Noodle Soup", 1.0, "cup", 150.0, 8.0, 18.0, 5.0, 2.0),
             food("Cooked Mixed Vegetables", 1.0, "cup", 118.0, 5.0, 24.0, 1.0, 8.0),
             food("Broccoli Cooked", 1.0, "cup", 55.0, 3.7, 11.2, .6, 5.1),
+            food("Spinach Cooked", 1.0, "cup", 41.0, 5.3, 6.8, .5, 4.3),
+            food("Carrots Cooked", 1.0, "cup", 55.0, 1.2, 12.8, .3, 4.7),
+            food("Green Peas Cooked", 1.0, "cup", 134.0, 8.6, 25.0, .4, 8.8),
+            food("Corn Cooked", 1.0, "cup", 143.0, 5.4, 31.3, 2.2, 3.6),
+            food("Green Beans Cooked", 1.0, "cup", 44.0, 2.4, 10.0, .3, 4.0),
+            food("Tomato", 1.0, "medium", 22.0, 1.1, 4.8, .2, 1.5),
+            food("Cucumber", 1.0, "cup", 16.0, .7, 3.8, .1, .5),
             food("Mixed Salad", 2.0, "cups", 50.0, 2.0, 10.0, .5, 4.0),
             food("Avocado", .5, "fruit", 120.0, 1.5, 6.4, 11.0, 5.0),
             food("Almonds", 28.0, "g", 164.0, 6.0, 6.1, 14.2, 3.5),
+            food("Walnuts", 28.0, "g", 185.0, 4.3, 3.9, 18.5, 1.9),
+            food("Cashews", 28.0, "g", 157.0, 5.2, 8.6, 12.4, .9),
+            food("Chia Seeds", 2.0, "tbsp", 138.0, 4.7, 11.9, 8.7, 9.8),
             food("Peanut Butter", 2.0, "tbsp", 188.0, 8.0, 7.0, 16.0, 1.9),
             food("Olive Oil", 1.0, "tbsp", 119.0, 0.0, 0.0, 13.5),
             food("Ghee", 1.0, "tsp", 45.0, 0.0, 0.0, 5.0),

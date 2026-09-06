@@ -1,5 +1,6 @@
 package com.ascend.app.ui.components
 
+import android.widget.VideoView
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -21,11 +22,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.net.toUri
+import com.ascend.app.R
 import com.ascend.app.ui.theme.DeepSurface
 import com.ascend.app.ui.theme.EnergyCyan
 import com.ascend.app.ui.theme.EnergyEmerald
@@ -42,6 +47,10 @@ private data class MotionSpec(val pattern: MotionPattern, val cue: String)
 @Composable
 fun ExerciseMotionDemo(exerciseName: String, muscleGroup: String, modifier: Modifier = Modifier) {
     val spec = remember(exerciseName, muscleGroup) { motionSpec(exerciseName, muscleGroup) }
+    if (spec.pattern == MotionPattern.SQUAT) {
+        PrebakedExerciseMotion(exerciseName, spec.cue, modifier)
+        return
+    }
     val transition = rememberInfiniteTransition(label = "${exerciseName}_motion")
     val phase by transition.animateFloat(
         initialValue = 0f,
@@ -167,6 +176,41 @@ fun ExerciseMotionDemo(exerciseName: String, muscleGroup: String, modifier: Modi
         }
         Text(
             text = "MOVEMENT CUE · ${spec.cue}",
+            style = MaterialTheme.typography.labelMedium,
+            color = TextSecondary,
+            modifier = Modifier.align(Alignment.BottomStart).background(DeepSurface.copy(alpha = .90f)).padding(horizontal = 9.dp, vertical = 5.dp),
+        )
+    }
+}
+
+@Composable
+private fun PrebakedExerciseMotion(exerciseName: String, cue: String, modifier: Modifier = Modifier) {
+    Box(
+        modifier
+            .fillMaxWidth()
+            .height(220.dp)
+            .clip(AngularShape)
+            .background(DeepSurface)
+            .border(1.dp, Hairline, AngularShape)
+            .semantics { contentDescription = "Looping rendered movement cue for $exerciseName. $cue" },
+    ) {
+        AndroidView(
+            factory = { context ->
+                VideoView(context).apply {
+                    setVideoURI("android.resource://${context.packageName}/${R.raw.exercise_squat_pattern}".toUri())
+                    setOnPreparedListener { player ->
+                        player.isLooping = true
+                        player.setVolume(0f, 0f)
+                        start()
+                    }
+                }
+            },
+            modifier = Modifier.fillMaxSize(),
+            update = { video -> if (!video.isPlaying) video.start() },
+            onRelease = VideoView::stopPlayback,
+        )
+        Text(
+            text = "PRE-RENDERED FORM LOOP · $cue",
             style = MaterialTheme.typography.labelMedium,
             color = TextSecondary,
             modifier = Modifier.align(Alignment.BottomStart).background(DeepSurface.copy(alpha = .90f)).padding(horizontal = 9.dp, vertical = 5.dp),

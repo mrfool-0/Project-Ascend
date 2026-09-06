@@ -68,7 +68,7 @@ fun SystemScreen(
     }
 
     Column(Modifier.fillMaxSize().imePadding()) {
-        Row(Modifier.padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(horizontal = 24.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             SystemAvatar(size = 46.dp)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
@@ -80,7 +80,7 @@ fun SystemScreen(
             IconButton(onClick = onClear) { Icon(Icons.Outlined.DeleteOutline, "Clear conversation", tint = TextSecondary) }
         }
 
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 24.dp)) {
             SystemTone.entries.forEachIndexed { index, option ->
                 SegmentedButton(
                     selected = tone == option,
@@ -93,7 +93,7 @@ fun SystemScreen(
         }
 
         Row(
-            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 10.dp),
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             listOf(
@@ -110,12 +110,12 @@ fun SystemScreen(
         androidx.compose.foundation.lazy.LazyColumn(
             Modifier.weight(1f).fillMaxWidth(),
             state = listState,
-            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             if (messages.isEmpty()) item {
                 AscendCard(Modifier.fillMaxWidth(), accent = EnergyCyan, highlighted = true) {
-                    Text("Private coach, ready", style = MaterialTheme.typography.titleLarge)
+                    Text("Tactical system, ready", style = MaterialTheme.typography.titleLarge)
                     Spacer(Modifier.height(7.dp))
                     Text(
                         "Ask about your plan, training, food, recovery or consistency. SYSTEM can also create a habit or daily quest when you explicitly ask.",
@@ -135,7 +135,7 @@ fun SystemScreen(
         }
 
         Surface(color = GlassSurface, shadowElevation = 12.dp) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.Bottom) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp), verticalAlignment = Alignment.Bottom) {
                 OutlinedTextField(
                     value = input,
                     onValueChange = { input = it.take(500) },
@@ -166,7 +166,7 @@ fun SystemScreen(
 
     if (showInfo) {
         ModalBottomSheet(onDismissRequest = { showInfo = false }, containerColor = DeepSurface) {
-            Column(Modifier.padding(horizontal = 22.dp).padding(bottom = 32.dp)) {
+            Column(Modifier.padding(horizontal = 24.dp).padding(bottom = 32.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     SystemAvatar(size = 50.dp)
                     Spacer(Modifier.width(12.dp))

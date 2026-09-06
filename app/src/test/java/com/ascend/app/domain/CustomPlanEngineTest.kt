@@ -7,6 +7,21 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class CustomPlanEngineTest {
+    @Test fun `full body split scales across three four and five day maps`() {
+        listOf(3, 4, 5).forEach { frequency ->
+            val map = CustomPlanEngine.weeklyArchitecture(frequency, TrainingSplit.FULL_BODY)
+            assertEquals(frequency, map.size)
+            assertTrue(map.all { it.startsWith("FULL BODY") })
+            assertEquals(map.size, map.distinct().size)
+        }
+    }
+
+    @Test fun `selected architecture recalculates weekly protocols`() {
+        assertEquals(listOf("PUSH", "PULL", "LEGS"), CustomPlanEngine.weeklyArchitecture(3, TrainingSplit.PUSH_PULL_LEGS))
+        assertEquals(listOf("UPPER A", "LOWER A", "UPPER B", "LOWER B"), CustomPlanEngine.weeklyArchitecture(4, TrainingSplit.UPPER_LOWER))
+        assertEquals(listOf("PUSH", "PULL", "LEGS", "UPPER", "LOWER"), CustomPlanEngine.weeklyArchitecture(5, TrainingSplit.AUTO))
+    }
+
     @Test fun `generates exact training frequency plus recovery`() {
         val days = setOf(DayOfWeek.MONDAY, DayOfWeek.WEDNESDAY, DayOfWeek.FRIDAY)
         val plan = CustomPlanEngine.generate(3, days, setOf(FocusArea.GLUTES), setOf(InjuryArea.NONE), Equipment.DUMBBELLS, Experience.BEGINNER)

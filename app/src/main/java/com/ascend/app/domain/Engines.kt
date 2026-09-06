@@ -29,10 +29,11 @@ object NutritionEngine {
             Objective.RECOMPOSITION -> .95
             Objective.MAINTAIN_FITNESS, Objective.GENERAL_HEALTH, Objective.BUILD_CONSISTENCY -> 1.0
         }
-        val calories = (maintenance * objectiveMultiplier).roundToInt().coerceAtLeast(1_200)
-        val protein = (weightKg * 2.0).roundToInt()
-        val fat = (weightKg * .8).roundToInt()
-        val carbs = ((calories - protein * 4 - fat * 9) / 4.0).roundToInt().coerceAtLeast(0)
+        val calories = (maintenance * objectiveMultiplier).roundToInt().coerceIn(1_200, NutritionTargetRules.MAX_CALORIES)
+        val protein = (weightKg * 2.0).roundToInt().coerceIn(NutritionTargetRules.MIN_PROTEIN, NutritionTargetRules.MAX_PROTEIN)
+        val fat = (weightKg * .8).roundToInt().coerceIn(NutritionTargetRules.MIN_FAT, NutritionTargetRules.MAX_FAT)
+        val carbs = ((calories - protein * 4 - fat * 9) / 4.0).roundToInt()
+            .coerceIn(NutritionTargetRules.MIN_CARBS, NutritionTargetRules.MAX_CARBS)
         val water = ((weightKg * 35 / 250).roundToInt() * 250).coerceIn(1_500, 5_000)
         return NutritionCalculation(bmr, maintenance, calories, protein, carbs, fat, water)
     }

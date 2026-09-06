@@ -3,10 +3,12 @@ package com.ascend.app.ui.screens
 import android.annotation.SuppressLint
 import android.app.Activity
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
@@ -17,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CloudDone
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Security
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -69,6 +72,7 @@ fun OnboardingScreen(externalError: String? = null, onComplete: (OnboardingProfi
     var injuryNames by rememberSaveable { mutableStateOf(setOf(InjuryArea.NONE.name)) }
     var injuryNotes by rememberSaveable { mutableStateOf("") }
     var frequency by rememberSaveable { mutableIntStateOf(3) }
+    var trainingSplit by rememberSaveable { mutableStateOf(TrainingSplit.AUTO) }
     var workoutDayValues by rememberSaveable { mutableStateOf(setOf(1, 3, 5)) }
     var futureVision by rememberSaveable { mutableStateOf("") }
     var coreReason by rememberSaveable { mutableStateOf("") }
@@ -117,7 +121,8 @@ fun OnboardingScreen(externalError: String? = null, onComplete: (OnboardingProfi
             experience = experience, equipment = equipment, diet = diet, trainingTime = trainingTime,
             focusAreas = focusNames.map(FocusArea::valueOf).toSet(),
             injuries = injuryNames.map(InjuryArea::valueOf).toSet(), injuryNotes = injuryNotes.trim(),
-            workoutFrequency = frequency, workoutDays = workoutDayValues.map(DayOfWeek::of).toSet(),
+            workoutFrequency = frequency, trainingSplit = trainingSplit,
+            workoutDays = workoutDayValues.map(DayOfWeek::of).toSet(),
             futureVision = futureVision.trim(), coreReason = coreReason.trim(), minimumPromise = minimumPromise.trim(),
             manualTargets = manual.takeUnless {
                 it.calories == estimated.calories &&
@@ -148,12 +153,8 @@ fun OnboardingScreen(externalError: String? = null, onComplete: (OnboardingProfi
                 val carbs = values[2] ?: -1
                 val fat = values[3] ?: -1
                 val water = values[4] ?: 0
-                val macroCalories = protein * 4 + carbs * 4 + fat * 9
-                if (
-                    values.any { it == null } || calories !in 1_000..10_000 || protein !in 1..1_000 ||
-                    carbs !in 0..2_000 || fat !in 0..500 || water !in 500..6_000 || macroCalories > calories * 1.5
-                ) {
-                    error = "Check the nutrition targets"; return
+                if (values.any { it == null } || !NutritionTargetRules.isValid(calories, protein, carbs, fat, water)) {
+                    error = "Use supported targets and keep macro energy within 70–120% of calories"; return
                 }
             }
         }
@@ -173,8 +174,8 @@ fun OnboardingScreen(externalError: String? = null, onComplete: (OnboardingProfi
     )
 
     Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(EnergyViolet.copy(.14f), Void), radius = 980f))) {
-        Column(Modifier.fillMaxSize().imePadding()) {
-            Column(Modifier.padding(horizontal = 20.dp).padding(top = 18.dp, bottom = 12.dp)) {
+        Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
+            Column(Modifier.padding(horizontal = 24.dp).padding(top = 18.dp, bottom = 12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     AscendEmblem(38.dp)
                     Spacer(Modifier.width(11.dp))
@@ -198,7 +199,7 @@ fun OnboardingScreen(externalError: String? = null, onComplete: (OnboardingProfi
 
             LazyColumn(
                 Modifier.weight(1f).fillMaxWidth(),
-                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                contentPadding = PaddingValues(start = 24.dp, top = 8.dp, end = 24.dp, bottom = 24.dp),
             ) {
                 item {
                     AnimatedContent(
@@ -219,12 +220,22 @@ fun OnboardingScreen(externalError: String? = null, onComplete: (OnboardingProfi
                         5 -> ChoicePage(ActivityLevel.entries, activity, { activity = it }, activityCopy)
                         6 -> ChoicePage(Experience.entries, experience, { experience = it }) { experienceCopy(it) }
                         7 -> ChoicePage(Equipment.entries, equipment, { equipment = it }) { equipmentCopy(it) }
-                        8 -> FrequencyPage(frequency) { frequency = it; workoutDayValues = defaultDays(it) }
+                        8 -> FrequencyPage(frequency, trainingSplit, { selected ->
+                            frequency = selected
+                            workoutDayValues = defaultDays(selected)
+                        }, { trainingSplit = it })
                         9 -> WorkoutDaysPage(frequency, workoutDayValues) { workoutDayValues = it }
                         10 -> ChoicePage(DietPreference.entries, diet, { diet = it }) { "Food suggestions will respect this path" }
                         11 -> ChoicePage(TrainingTime.entries.filterNot { it == TrainingTime.CUSTOM }, trainingTime, { trainingTime = it }) { "Sets the timing of workout reminders" }
                         12 -> MindsetPage(futureVision, { futureVision = it }, coreReason, { coreReason = it }, minimumPromise, { minimumPromise = it })
-                        13 -> NutritionTargetsPage(estimate(), calorieText, { calorieText = it }, proteinText, { proteinText = it }, carbsText, { carbsText = it }, fatText, { fatText = it }, waterText, { waterText = it })
+                        13 -> NutritionTargetsPage(
+                            estimate(),
+                            calorieText, { calorieText = NutritionTargetRules.boundedIntegerInput(it, NutritionTargetRules.MAX_CALORIES) },
+                            proteinText, { proteinText = NutritionTargetRules.boundedIntegerInput(it, NutritionTargetRules.MAX_PROTEIN) },
+                            carbsText, { carbsText = NutritionTargetRules.boundedIntegerInput(it, NutritionTargetRules.MAX_CARBS) },
+                            fatText, { fatText = NutritionTargetRules.boundedIntegerInput(it, NutritionTargetRules.MAX_FAT) },
+                            waterText, { waterText = NutritionTargetRules.boundedIntegerInput(it, NutritionTargetRules.MAX_WATER_ML) },
+                        )
                         14 -> profile()?.let { PlayerReportPage(it) }
                         15 -> SystemInitializationPage(name.ifBlank { "PLAYER" }, profile())
                         else -> profile()?.let { CloudSavePage(it, onComplete) }
@@ -234,14 +245,18 @@ fun OnboardingScreen(externalError: String? = null, onComplete: (OnboardingProfi
             }
 
             (error ?: externalError)?.let { message ->
-                Text(message, Modifier.padding(horizontal = 20.dp, vertical = 8.dp), color = EnergyCrimson, style = MaterialTheme.typography.bodyMedium)
+                Text(message, Modifier.padding(horizontal = 24.dp, vertical = 8.dp), color = EnergyCrimson, style = MaterialTheme.typography.bodyMedium)
             }
             if (step != LAST_STEP) {
-                Surface(color = GlassSurface, shadowElevation = 14.dp) {
+                Surface(
+                    modifier = Modifier.navigationBarsPadding(),
+                    color = GlassSurface,
+                    shadowElevation = 14.dp,
+                ) {
                     if (step == 0) {
-                        SystemButton("Begin player creation", ::next, Modifier.fillMaxWidth().padding(16.dp))
+                        SystemButton("Begin player creation", ::next, Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp))
                     } else {
-                        Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             SystemButton("Back", { step-- }, Modifier.weight(.32f), secondary = true)
                             SystemButton(
                                 when (step) { 13 -> "Generate report"; 14 -> "Initialize"; 15 -> "Secure progress"; else -> "Continue" },
@@ -368,7 +383,12 @@ private fun InjuryPage(selected: Set<String>, onChange: (Set<String>) -> Unit, n
 }
 
 @Composable
-private fun FrequencyPage(selected: Int, onSelect: (Int) -> Unit) {
+private fun FrequencyPage(
+    selected: Int,
+    split: TrainingSplit,
+    onSelect: (Int) -> Unit,
+    onSplit: (TrainingSplit) -> Unit,
+) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         (2..6).forEach { days ->
             AscendCard(Modifier.fillMaxWidth(), highlighted = selected == days, accent = EnergyCyan, onClick = { onSelect(days) }) {
@@ -379,6 +399,26 @@ private fun FrequencyPage(selected: Int, onSelect: (Int) -> Unit) {
                 }
             }
         }
+        Spacer(Modifier.height(8.dp))
+        Text("TRAINING ARCHITECTURE", style = MaterialTheme.typography.labelLarge, color = EnergyCyan)
+        Text("Choose a primary split. The weekly map recalculates instantly for your selected frequency.", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
+        TrainingSplit.entries.forEach { option ->
+            AscendCard(
+                Modifier.fillMaxWidth(),
+                highlighted = split == option,
+                accent = if (option == TrainingSplit.FULL_BODY) EnergyCyan else EnergyViolet,
+                onClick = { onSplit(option) },
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    RadioButton(selected = split == option, onClick = { onSplit(option) })
+                    Column(Modifier.padding(start = 8.dp)) {
+                        Text(option.displayName, style = MaterialTheme.typography.titleMedium)
+                        Text(option.description, style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
+                    }
+                }
+            }
+        }
+        Text("AVAILABLE PROTOCOLS  //  FULL BODY · PUSH · PULL · LEGS · UPPER · LOWER · RECOVERY", style = MaterialTheme.typography.labelSmall, color = TextTertiary)
     }
 }
 
@@ -452,6 +492,64 @@ private fun NutritionTargetsPage(
             AscendTextField(fat, setFat, "FAT G", true, Modifier.weight(1f))
         }
         AscendTextField(water, setWater, "WATER ML", true)
+        val waterMl = water.toIntOrNull() ?: 0
+        Text(
+            if (waterMl > 0) "LIVE CONVERSION  //  ${NutritionTargetRules.waterLabel(waterMl)}" else "ENTER WATER IN ML · MAX 6.00 L",
+            style = MaterialTheme.typography.labelMedium,
+            color = EnergyCyan,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(2_000, 2_500, 3_000, 3_500).forEach { preset ->
+                FilterChip(
+                    selected = waterMl == preset,
+                    onClick = { setWater(preset.toString()) },
+                    label = { Text("${preset / 1_000.0} L") },
+                    modifier = Modifier.weight(1f),
+                    shape = AngularShape,
+                )
+            }
+        }
+        MacroBalanceFeedback(calories, protein, carbs, fat)
+    }
+}
+
+@Composable
+internal fun MacroBalanceFeedback(calories: String, protein: String, carbs: String, fat: String) {
+    val target = calories.toIntOrNull() ?: 0
+    val proteinValue = protein.toIntOrNull() ?: 0
+    val carbValue = carbs.toIntOrNull() ?: 0
+    val fatValue = fat.toIntOrNull() ?: 0
+    val macroEnergy = NutritionTargetRules.macroCalories(proteinValue, carbValue, fatValue)
+    val ratio = if (target > 0) macroEnergy.toFloat() / target else 0f
+    val total = macroEnergy.coerceAtLeast(1)
+    val aligned = target > 0 && ratio in .70f..1.20f
+    AscendCard(Modifier.fillMaxWidth(), accent = if (aligned) EnergyEmerald else EnergyAmber, highlighted = aligned) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("LIVE MACRO ENERGY", style = MaterialTheme.typography.labelLarge, color = if (aligned) EnergyEmerald else EnergyAmber)
+            Spacer(Modifier.weight(1f))
+            Text("$macroEnergy KCAL", style = MaterialTheme.typography.titleMedium)
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            if (target == 0) "Enter a calorie target to calculate alignment."
+            else "${(ratio * 100).roundToInt()}% of the $target kcal target · ${macroEnergy - target} kcal difference",
+            style = MaterialTheme.typography.bodyMedium,
+            color = TextSecondary,
+        )
+        Spacer(Modifier.height(10.dp))
+        LinearProgressIndicator(
+            progress = { ratio.coerceIn(0f, 1.2f) / 1.2f },
+            modifier = Modifier.fillMaxWidth().height(7.dp),
+            color = if (aligned) EnergyEmerald else EnergyAmber,
+            trackColor = Hairline,
+            strokeCap = StrokeCap.Round,
+        )
+        Spacer(Modifier.height(9.dp))
+        Text(
+            "P ${proteinValue * 4 * 100 / total}%  ·  C ${carbValue * 4 * 100 / total}%  ·  F ${fatValue * 9 * 100 / total}%",
+            style = MaterialTheme.typography.labelMedium,
+            color = TextSecondary,
+        )
     }
 }
 
@@ -462,7 +560,7 @@ private fun PlayerReportPage(profile: OnboardingProfile) {
         profile.weightKg, profile.heightCm, age, profile.sex, profile.activity, profile.objective,
     )
     val bmi = profile.weightKg / ((profile.heightCm / 100) * (profile.heightCm / 100))
-    val plan = remember(profile) { CustomPlanEngine.generate(profile.workoutFrequency, profile.workoutDays, profile.focusAreas, profile.injuries, profile.equipment, profile.experience, profile.objective) }
+    val plan = remember(profile) { CustomPlanEngine.generate(profile.workoutFrequency, profile.workoutDays, profile.focusAreas, profile.injuries, profile.equipment, profile.experience, profile.objective, profile.trainingSplit) }
     val attributes = listOf(
         "TRAINING READINESS" to when (profile.experience) { Experience.BEGINNER -> .48f; Experience.INTERMEDIATE -> .7f; Experience.ADVANCED -> .86f },
         "ACTIVITY BASE" to when (profile.activity) { ActivityLevel.SEDENTARY -> .3f; ActivityLevel.LIGHT -> .5f; ActivityLevel.MODERATE -> .72f; ActivityLevel.VERY_ACTIVE -> .9f },
@@ -474,6 +572,7 @@ private fun PlayerReportPage(profile: OnboardingProfile) {
             Text("ANALYSIS COMPLETE", style = MaterialTheme.typography.labelLarge, color = EnergyEmerald)
             Text(profile.name.uppercase(), style = MaterialTheme.typography.displayMedium)
             Text(plan.title, style = MaterialTheme.typography.titleMedium, color = EnergyCyan)
+            Text("${profile.workoutFrequency}-DAY MAP · ${profile.trainingSplit.displayName}", style = MaterialTheme.typography.labelMedium, color = TextSecondary)
         }
         AscendCard(Modifier.fillMaxWidth()) {
             Text("PLAYER ATTRIBUTE GRAPH", style = MaterialTheme.typography.labelLarge, color = EnergyViolet)
@@ -541,20 +640,42 @@ private fun ReportMetric(label: String, value: String) {
 
 @Composable
 private fun SystemInitializationPage(name: String, profile: OnboardingProfile?) {
-    val lines = remember(profile) { listOf("PLAYER IDENTITY LOCKED: ${name.uppercase()}", "OBJECTIVE MATRIX LINKED", "SAFETY FILTERS ACTIVE", "${profile?.workoutFrequency ?: 0}-DAY TRAINING PROTOCOL FORGED", "NUTRITION CORE CALIBRATED", "QUEST ENGINE ONLINE", "ASCENSION PATH READY") }
+    val lines = remember(profile) {
+        listOf(
+            "IDENTITY LOCKED  //  ${name.uppercase()}",
+            "OBJECTIVE MATRIX LINKED",
+            "${profile?.workoutFrequency ?: 0}-DAY ${profile?.trainingSplit?.displayName ?: "CUSTOM"} PROTOCOL FORGED",
+            "QUEST ENGINE ONLINE",
+        )
+    }
     var visibleLines by remember { mutableIntStateOf(0) }
-    LaunchedEffect(lines) { visibleLines = 0; lines.indices.forEach { index -> delay(if (index == 0) 350 else 520); visibleLines = index + 1 } }
+    LaunchedEffect(lines) { visibleLines = 0; lines.indices.forEach { index -> delay(if (index == 0) 420 else 680); visibleLines = index + 1 } }
+    val completion by animateFloatAsState(visibleLines / lines.size.toFloat(), tween(520), label = "initialization_completion")
     Column(verticalArrangement = Arrangement.spacedBy(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Box(Modifier.size(136.dp), contentAlignment = Alignment.Center) {
             Canvas(Modifier.fillMaxSize()) {
                 drawCircle(EnergyViolet.copy(.14f)); drawCircle(EnergyCyan, style = Stroke(2.dp.toPx()))
-                drawArc(EnergyViolet, -90f, visibleLines / lines.size.toFloat() * 360f, false, style = Stroke(7.dp.toPx(), cap = StrokeCap.Round))
+                drawArc(EnergyViolet, -90f, completion * 360f, false, style = Stroke(7.dp.toPx(), cap = StrokeCap.Round))
             }
             AscendEmblem(72.dp)
         }
         Text("INITIALIZING PLAYER…", style = MaterialTheme.typography.headlineMedium, color = EnergyCyan)
-        AscendCard(Modifier.fillMaxWidth(), highlighted = visibleLines == lines.size) {
-            lines.take(visibleLines).forEachIndexed { index, line -> TypewriterText(if (index == visibleLines - 1) "> $line" else "✓ $line", line + index) }
+        AscendCard(Modifier.fillMaxWidth(), highlighted = visibleLines == lines.size, accent = if (visibleLines == lines.size) EnergyCyan else EnergyViolet) {
+            lines.forEachIndexed { index, line ->
+                AnimatedVisibility(
+                    visible = index < visibleLines,
+                    enter = fadeIn(tween(420)) + slideInVertically(tween(420)) { it / 3 },
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.Outlined.CheckCircle, null, tint = if (index % 2 == 0) EnergyCyan else EnergyViolet, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(10.dp))
+                        TypewriterText(line, line + index)
+                    }
+                }
+            }
             if (visibleLines < lines.size) Text("▌", color = EnergyCyan, style = MaterialTheme.typography.titleMedium)
         }
         if (visibleLines == lines.size) {

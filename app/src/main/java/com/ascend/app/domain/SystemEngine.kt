@@ -19,6 +19,10 @@ data class SystemContext(
     val todayWorkout: String,
     val tomorrowWorkout: String,
     val workoutFrequency: Int,
+    val bmr: Int = 0,
+    val carbohydrateTarget: Int = 0,
+    val fatTarget: Int = 0,
+    val weeklySplit: String = "",
     val focusAreas: Set<FocusArea>,
     val injuries: Set<InjuryArea>,
     val coreReason: String,
@@ -104,14 +108,12 @@ object SystemEngine {
             direct = "STATUS SCAN COMPLETE. Here is the truth in the data.",
             ruthless = "STATUS SCAN COMPLETE. Numbers do not care about excuses; they show the next move.",
         )
-        return "$lead\n" + listOf(
-            "• $caloriesRemaining kcal remaining (${context.caloriesLogged}/${context.calorieTarget})",
-            "• $proteinRemaining g protein remaining (${context.proteinLogged}/${context.proteinTarget})",
-            "• $waterRemaining ml hydration remaining (${context.waterLogged}/${context.waterTarget})",
-            "• ${context.streak}-day streak",
-            "• 7-day pattern: ${context.activeDaysLast7} active days, ${context.averageCompletionLast7}% average completion, ${context.workoutsLast7} training sessions",
-            "• Today's protocol: ${context.todayWorkout}",
-        ).joinToString("\n") + "\nNEXT COMMAND: ${nextAction(context)}"
+        return listOf(
+            lead,
+            "FUEL // $caloriesRemaining kcal and $proteinRemaining g protein remain; hydration gap $waterRemaining ml.",
+            "CALIBRATION // BMR ${context.bmr} kcal; targets ${context.calorieTarget} kcal · P ${context.proteinTarget} g · C ${context.carbohydrateTarget} g · F ${context.fatTarget} g.",
+            "PROTOCOL // ${context.todayWorkout}; ${context.streak}-day streak · ${context.averageCompletionLast7}% seven-day completion · ${context.workoutsLast7} sessions. NEXT COMMAND: ${nextAction(context)}.",
+        ).joinToString("\n")
     }
 
     private fun calorieResponse(context: SystemContext, tone: SystemTone): String {
@@ -170,7 +172,7 @@ object SystemEngine {
             "today" in input -> "TODAY: ${context.todayWorkout}."
             else -> "TODAY: ${context.todayWorkout}. TOMORROW: ${context.tomorrowWorkout}."
         }
-        return "$requestedDay Your program uses ${context.workoutFrequency} training day${if (context.workoutFrequency == 1) "" else "s"} per week and automatically places recovery on the other days. " +
+        return "$requestedDay Your ${context.workoutFrequency}-day map is ${context.weeklySplit.ifBlank { "frequency optimized" }}; unselected days use the recovery protocol. " +
             voice(tone, "Follow the rhythm and adjust when recovery genuinely needs it.", "Protect the scheduled time like an appointment.", "A plan you keep beats a perfect plan you repeatedly abandon.")
     }
 
@@ -203,32 +205,33 @@ object SystemEngine {
         val reason = context.coreReason.ifBlank { "become someone who keeps promises to themselves" }
         val minimum = context.minimumPromise.ifBlank { "complete the smallest honest version of today's quest" }
         val quote = MotivationLibrary.quotes[Math.floorMod(context.streak + reason.hashCode(), MotivationLibrary.quotes.size)]
+            .replace(". ", " — ")
         return behaviorCue(context, tone) + " " + voice(
             tone,
-            supportive = "You chose this because you want to $reason. You do not need to feel powerful first. $minimum, then let momentum help. $quote",
-            direct = "Your reason: $reason. Motivation is optional; the next action is not. $minimum. $quote",
-            ruthless = "Enough bargaining. The version of you that you described is built while the current version wants comfort. $minimum—now. $quote",
+            supportive = "IDENTITY TARGET: $reason. NEXT COMMAND: $minimum, then let momentum help. $quote",
+            direct = "IDENTITY TARGET: $reason. NEXT COMMAND: $minimum. $quote",
+            ruthless = "Enough bargaining; the version you described is built while the current version wants comfort. NEXT COMMAND: $minimum—now. $quote",
         )
     }
 
     private fun behaviorCue(context: SystemContext, tone: SystemTone): String = when {
         context.activeDaysLast7 == 0 -> voice(
             tone,
-            "Your recent log is quiet. That is not a verdict; it means we restart with one action small enough to repeat.",
-            "No progress was logged in the last seven days. Reset the pattern with one action now, not a heroic plan tomorrow.",
-            "The last seven days show no logged follow-through. Stop designing the comeback and complete one small command now.",
+            "Your recent log is quiet—not a verdict, but a signal to restart with one repeatable action.",
+            "No progress was logged in the last seven days; reset the pattern with one action now, not a heroic plan tomorrow.",
+            "The last seven days show no logged follow-through; stop designing the comeback and complete one small command now.",
         )
         context.averageCompletionLast7 < 45 || context.activeDaysLast7 <= 2 -> voice(
             tone,
-            "Your recent pattern says the plan needs less friction. Choose a smaller minimum and identify the moment that usually breaks the chain.",
-            "Recent adherence is inconsistent. Reduce the daily minimum, anchor it to a fixed cue, and name the obstacle that keeps repeating.",
-            "Your recent behavior is below the standard you chose. Do not add complexity—remove one recurring excuse and lock the minimum action to a fixed time.",
+            "Your recent pattern needs less friction; choose a smaller minimum and identify the moment that breaks the chain.",
+            "Recent adherence is inconsistent; reduce the minimum, anchor it to a fixed cue, and name the repeating obstacle.",
+            "Your recent behavior is below your chosen standard; remove one recurring excuse and lock the minimum action to a fixed time.",
         )
         context.averageCompletionLast7 >= 80 || context.streak >= 7 -> voice(
             tone,
-            "Your recent consistency is strong. Protect the routine and progress only one variable at a time.",
-            "The pattern is working. Keep the routine stable and progress one measurable variable this week.",
-            "You have earned momentum. Do not waste it chasing novelty—raise one standard and keep every other variable stable.",
+            "Your recent consistency is strong; protect the routine and progress only one variable at a time.",
+            "The pattern is working; keep the routine stable and progress one measurable variable this week.",
+            "You earned momentum; do not waste it chasing novelty—raise one standard and keep every other variable stable.",
         )
         else -> "Your recent behavior is building, but not yet automatic. Keep the same cue, lower avoidable friction, and complete today's minimum before expanding it."
     }
@@ -264,7 +267,7 @@ object SystemEngine {
     }
 
     private fun appHelpResponse(): String =
-        "SYSTEM MAP: use HOME for today's status, WORKOUT for the generated protocol, NUTRITION to log food or run the Food Vision photo scan, HABITS for repeatable quests, and PROGRESS for trends. Tell me what you are trying to log or change and I will point to the exact module."
+        "SYSTEM MAP: use HOME for today's status, WORKOUT for the generated protocol, NUTRITION to add food, HABITS for repeatable quests, and PROGRESS for trends. Tell me what you are trying to log or change and I will point to the exact module."
 
     private fun identityResponse(tone: SystemTone): String =
         "I am ASCEND SYSTEM: your private on-device training, nutrition, recovery, and discipline interface. I read the progress you log in ASCEND and turn it into a useful next action. " +
@@ -336,7 +339,7 @@ object SystemEngine {
             Intent.EMOTION -> listOf("sad", "depressed", "anxious", "overwhelmed", "stressed", "hate myself", "bad day", "feel terrible", "frustrated")
             Intent.PLATEAU -> listOf("plateau", "stuck", "not losing", "not gaining", "no progress")
             Intent.WEIGHT_GOAL -> listOf("lose weight", "gain weight", "gain muscle", "fat loss", "bulk", "cut", "recomposition", "body fat")
-            Intent.APP_HELP -> listOf("how do i log", "where is", "how to use", "scan food", "food photo", "app help", "delete log")
+            Intent.APP_HELP -> listOf("how do i log", "where is", "how to use", "add food", "food catalog", "app help", "delete log")
             Intent.IDENTITY -> listOf("who are you", "what are you", "your name", "are you a coach", "system name")
             Intent.GREETING -> listOf("hello", "hey", "hi system", "good morning", "good evening", "what's up")
         }

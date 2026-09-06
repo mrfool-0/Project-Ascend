@@ -13,6 +13,12 @@ enum class Experience { BEGINNER, INTERMEDIATE, ADVANCED }
 enum class Equipment { FULL_GYM, DUMBBELLS, HOME_GYM, BODYWEIGHT }
 enum class DietPreference { VEGETARIAN, EGGETARIAN, NON_VEGETARIAN, VEGAN, CUSTOM }
 enum class TrainingTime { MORNING, AFTERNOON, EVENING, CUSTOM }
+enum class TrainingSplit(val displayName: String, val description: String) {
+    AUTO("AUTO", "Frequency-optimized weekly architecture"),
+    FULL_BODY("FULL BODY", "Every training day covers the complete body"),
+    PUSH_PULL_LEGS("PUSH / PULL / LEGS", "Movement-pattern rotation with balanced volume"),
+    UPPER_LOWER("UPPER / LOWER", "Alternating upper and lower body sessions"),
+}
 enum class FocusArea { CHEST, BACK, SHOULDERS, ARMS, CORE, GLUTES, LEGS, ENDURANCE, MOBILITY }
 enum class InjuryArea { NONE, LOWER_BACK, KNEE, SHOULDER, HIP, WRIST, ANKLE, CARDIOVASCULAR, OTHER }
 enum class HabitType { CHECKBOX, NUMBER, DURATION, AVOIDANCE }

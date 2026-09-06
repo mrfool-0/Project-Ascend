@@ -35,16 +35,11 @@ object CustomPlanEngine {
         equipment: Equipment,
         experience: Experience,
         objective: Objective = Objective.GENERAL_HEALTH,
+        trainingSplit: TrainingSplit = TrainingSplit.AUTO,
     ): CustomPlan {
         require(frequency in 2..6)
         require(workoutDays.size == frequency)
-        val base = when (frequency) {
-            2 -> listOf("FULL BODY A", "FULL BODY B")
-            3 -> listOf("UPPER", "LOWER", "FULL BODY")
-            4 -> listOf("UPPER A", "LOWER A", "UPPER B", "LOWER B")
-            5 -> listOf("PUSH", "PULL", "LEGS", "UPPER", "LOWER")
-            else -> listOf("PUSH A", "PULL A", "LEGS A", "PUSH B", "PULL B", "LEGS B")
-        }
+        val base = weeklyArchitecture(frequency, trainingSplit)
         val setCount = when {
             objective == Objective.BUILD_CONSISTENCY -> 2
             experience == Experience.BEGINNER -> 3
@@ -76,11 +71,36 @@ object CustomPlanEngine {
             add("Begin below maximum effort, preserve technique, and progress only after every target rep is controlled.")
         }
         return CustomPlan(
-            title = "${frequency}-DAY ${objective.name.replace('_', ' ')} PROTOCOL",
+            title = "${frequency}-DAY ${trainingSplit.displayName} ${objective.name.replace('_', ' ')} PROTOCOL",
             workouts = sessions + PlannedWorkout("RECOVERY PROTOCOL", 20, emptyList(), recovery = true),
             weeklyDays = workoutDays.sortedBy { it.value },
             safetyNotes = safety,
         )
+    }
+
+    fun weeklyArchitecture(frequency: Int, trainingSplit: TrainingSplit): List<String> {
+        require(frequency in 2..6)
+        return when (trainingSplit) {
+            TrainingSplit.FULL_BODY -> (0 until frequency).map { "FULL BODY ${('A'.code + it).toChar()}" }
+            TrainingSplit.UPPER_LOWER -> (0 until frequency).map { index ->
+                val cycle = index / 2
+                "${if (index % 2 == 0) "UPPER" else "LOWER"} ${('A'.code + cycle).toChar()}"
+            }
+            TrainingSplit.PUSH_PULL_LEGS -> when (frequency) {
+                2 -> listOf("FULL BODY A", "FULL BODY B")
+                3 -> listOf("PUSH", "PULL", "LEGS")
+                4 -> listOf("PUSH", "PULL", "LEGS", "FULL BODY")
+                5 -> listOf("PUSH", "PULL", "LEGS", "UPPER", "LOWER")
+                else -> listOf("PUSH A", "PULL A", "LEGS A", "PUSH B", "PULL B", "LEGS B")
+            }
+            TrainingSplit.AUTO -> when (frequency) {
+                2 -> listOf("FULL BODY A", "FULL BODY B")
+                3 -> listOf("UPPER", "LOWER", "FULL BODY")
+                4 -> listOf("UPPER A", "LOWER A", "UPPER B", "LOWER B")
+                5 -> listOf("PUSH", "PULL", "LEGS", "UPPER", "LOWER")
+                else -> listOf("PUSH A", "PULL A", "LEGS A", "PUSH B", "PULL B", "LEGS B")
+            }
+        }
     }
 
     fun templateIndexFor(date: LocalDate, programStart: LocalDate, scheduledDays: Set<DayOfWeek>): Int {

@@ -18,9 +18,9 @@ import com.google.android.gms.tasks.Task
 import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.suspendCancellableCoroutine
-import java.time.Instant
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -53,9 +53,12 @@ class GoogleProgressService(private val context: Context) {
             .signInWithCredential(GoogleAuthProvider.getCredential(googleCredential.idToken, null))
             .awaitResult()
         val user = authResult.user ?: error("Google sign-in completed without a user account.")
+        check(!user.isAnonymous && user.providerData.any { it.providerId == GoogleAuthProvider.PROVIDER_ID }) {
+            "ASCEND requires a verified Google-authenticated Firebase session for cloud progress."
+        }
         FirebaseFirestore.getInstance().collection("players").document(user.uid)
             .collection("progress").document("onboarding")
-            .set(input.toCloudMap() + mapOf("email" to (user.email ?: ""), "syncedAt" to Instant.now().toString()))
+            .set(input.toCloudMap() + mapOf("syncedAt" to FieldValue.serverTimestamp()))
             .awaitResult()
         user.email ?: googleCredential.id
     }
@@ -67,7 +70,9 @@ class GoogleProgressService(private val context: Context) {
         summaries: List<DailySummaryEntity>,
     ) {
         if (!isConfigured) return
-        val user = runCatching { FirebaseAuth.getInstance().currentUser }.getOrNull() ?: return
+        val user = runCatching { FirebaseAuth.getInstance().currentUser }.getOrNull()
+            ?.takeIf { !it.isAnonymous && it.providerData.any { provider -> provider.providerId == GoogleAuthProvider.PROVIDER_ID } }
+            ?: return
         val snapshot = mapOf(
             "displayName" to profile.displayName,
             "objective" to profile.objective,
@@ -85,7 +90,7 @@ class GoogleProgressService(private val context: Context) {
                     "water" to it.waterMl, "workout" to it.workoutCompleted,
                 )
             },
-            "syncedAt" to Instant.now().toString(),
+            "syncedAt" to FieldValue.serverTimestamp(),
         )
         FirebaseFirestore.getInstance().collection("players").document(user.uid)
             .collection("progress").document("current").set(snapshot)
@@ -106,6 +111,7 @@ class GoogleProgressService(private val context: Context) {
         "injuries" to injuries.map { it.name },
         "injuryNotes" to injuryNotes,
         "workoutFrequency" to workoutFrequency,
+        "trainingSplit" to trainingSplit.name,
         "workoutDays" to workoutDays.map { it.name },
         "futureVision" to futureVision,
         "coreReason" to coreReason,

@@ -17,6 +17,10 @@ class SystemEngineTest {
         todayWorkout = "UPPER",
         tomorrowWorkout = "RECOVERY PROTOCOL",
         workoutFrequency = 4,
+        bmr = 1_710,
+        carbohydrateTarget = 245,
+        fatTarget = 65,
+        weeklySplit = "UPPER A → LOWER A → UPPER B → LOWER B",
         focusAreas = setOf(FocusArea.CHEST),
         injuries = setOf(InjuryArea.SHOULDER),
         coreReason = "have lasting energy",
@@ -28,6 +32,15 @@ class SystemEngineTest {
     fun `nutrition answers use live remaining targets`() {
         assertTrue("700" in SystemEngine.respond("How many calories are left?", context))
         assertTrue("45" in SystemEngine.respond("protein status", context))
+    }
+
+    @Test
+    fun `status scan references exact calibrated metrics`() {
+        val answer = SystemEngine.respond("Scan my day", context)
+        assertTrue("BMR 1710" in answer)
+        assertTrue("P 140 g" in answer)
+        assertTrue("C 245 g" in answer)
+        assertTrue("F 65 g" in answer)
     }
 
     @Test

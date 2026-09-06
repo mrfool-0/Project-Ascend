@@ -6,20 +6,20 @@ ASCEND is an offline-first native Android health, training, nutrition, habit, an
 
 ## What is implemented
 
-- Sixteen-stage game-style player creation with focus areas, injury screening, training frequency, exact workout weekdays, mindset calibration, animated graphs, a generated report and typewriter initialization
-- Mifflin–St Jeor calorie estimation with transparent maintenance calculation and editable calorie, macro and water targets
+- Sixteen-stage game-style player creation with safe-area-aware spacing, focus areas, injury screening, training frequency, exact workout weekdays, mindset calibration, animated graphs, a generated report, and a staggered tactical initialization sequence
+- Mifflin–St Jeor calorie estimation with transparent maintenance calculation; bounded calorie, macro, and water inputs; smart milliliter/liter formatting; and live macro-energy feedback
 - Level 1–100 progression, eleven original ranks, a durable XP ledger, duplicate-source protection, streaks and achievements
-- A custom 2–6 day program generated from focus, experience, equipment, schedule and reported limitations; selected focus areas rotate into the actual exercise plan and other days automatically use the recovery protocol
-- Workout session logging for every set, weight and rep; a background-accurate rest timer; completion rewards; progression suggestions, PR detection, a restrained glitch/shake quest-entry sequence, and an expandable animated movement cue on every exercise
-- A searchable offline catalog of everyday foods, meal logging, scaled servings, saved meals and hydration, plus an opt-in Firebase AI Logic photo scanner that identifies a visible meal and estimates calories and nutrients for review before saving
+- A custom 2–6 day program generated from focus, experience, equipment, schedule, reported limitations, and the selected Full Body, Push/Pull/Legs, Upper/Lower, or Automatic architecture; the weekly map recalculates for the selected frequency
+- Workout session logging for every set, weight and rep; a background-accurate rest timer; completion rewards; progression suggestions, PR detection, a restrained glitch/shake quest-entry sequence, and an expandable animated movement cue on every exercise. A lightweight packaged Remotion loop is used where available, with a procedural fallback for every other movement.
+- A searchable offline catalog of global everyday foods—including common grains, fruit, vegetables, dairy, pulses, beef, poultry, seafood, and prepared meals—plus manual custom-food creation, meal logging, scaled servings, saved meals, and hydration
 - Checkbox, number, duration and avoidance habit models with configurable difficulty and a 75 XP daily anti-farming cap
 - Body-weight logging, trend-focused charting, 7-day averages, consistency heatmap, training/nutrition summaries and ASCEND game scores
 - Daily, weekly, and player-created quest ledger; rank badges; level-up/quest/PR presentation; configurable WorkManager reminders; and settings. Quest and Progress are available from the player profile while the bottom bar stays focused on Home, Nutrition, Habits, and SYSTEM.
-- ASCEND SYSTEM, a context-aware Firebase AI Logic chatbot with a capable on-device fallback and a custom hooded interface identity. It understands natural fitness questions and follow-ups, reads the player's plan, live daily totals, and recent seven-day behavior, offers Ally/Command/Ruthless voice modes, preserves local emergency safeguards, and renders robotic typewriter responses.
+- ASCEND SYSTEM, a tactical Firebase AI Logic performance OS with a capable on-device fallback and a custom hooded interface identity. It understands natural fitness questions and follow-ups, reads exact calibrated BMR, calories, macros, hydration, weekly split, habit streaks, live daily totals, and recent seven-day behavior, offers Ally/Command/Ruthless voice modes, preserves local emergency safeguards, and renders concise robotic typewriter responses.
 - Action-capable SYSTEM commands: explicit requests can create scheduled habits or custom daily quests, with bounded XP, duplicate protection, and tap-to-complete/revert ledger behavior. Coaching adapts to logged consistency using transparent motivational interviewing and implementation intentions; covert or coercive manipulation is explicitly forbidden.
 - Room persistence and Preferences DataStore; no analytics, ads, or mandatory network access
 - A local player profile photo picker that stores the selected image privately and decodes it efficiently for display
-- Optional Credential Manager Google sign-in with Firebase Authentication/Firestore progress snapshots; private offline mode remains fully supported
+- Optional Credential Manager Google sign-in with Firebase Authentication/Firestore progress snapshots; strict owner-only Firestore rules, verified identities, server timestamps, and build-appropriate Firebase App Check providers protect the backend while private offline mode remains fully supported
 - Optional Health Connect boundary in settings. V1 deliberately does not request health permissions or include a Health Connect runtime dependency.
 
 ## Technology
@@ -27,13 +27,14 @@ ASCEND is an offline-first native Android health, training, nutrition, habit, an
 - Kotlin 2.3.21
 - Jetpack Compose + Material 3 (Compose BOM 2026.08.00)
 - Manrope and JetBrains Mono variable typography with bundled OFL license notices
-- Coil Compose 3.4.0 for asynchronous, downsampled profile-image loading
+- Coil Compose 3.6.2 for asynchronous, downsampled profile-image loading
 - Android Gradle Plugin 9.4.0 / Gradle 9.7.1
 - Navigation Compose 2.10.0
 - Room 2.8.4 with KSP 2.3.9
 - DataStore 1.2.1
 - Coroutines and StateFlow
 - WorkManager 2.11.2
+- Remotion 4 + `@remotion/three` render-time exercise pipeline, with isolated `@react-three/fiber`/`drei` web preview primitives
 - MVVM with a repository boundary and testable domain engines
 
 The project targets Android API 37 and supports Android 8.0/API 26 and newer. Dependency versions are pinned and there are no dynamic versions.
@@ -71,9 +72,14 @@ com.ascend.app/
 ├── AscendRepository    Offline data orchestration and XP transaction rules
 ├── AscendViewModel     Stable reactive screen state and user actions
 └── MainActivity        Compose navigation and system-level presentation
+
+exercise-motion-pipeline/
+├── src/three/          Procedural and dynamically loaded humanoid rigs
+├── src/web/            Isolated real-time R3F/drei preview wrapper
+└── examples/           Parameterized render jobs
 ```
 
-Room owns structured health/progression records. DataStore owns lightweight preferences that are not relational. UI code observes repository flows through the ViewModel; composables never access the database directly. Repositories form the seam for future sync or food-provider adapters.
+Room owns structured health/progression records. DataStore owns lightweight preferences that are not relational. UI code observes repository flows through the ViewModel; composables never access the database directly. The Remotion/Three package is render-time tooling only, so WebGL does not inflate or burden the Android runtime. Its GLB loader accepts dynamic publisher-owned paths and no copyrighted 3D model is bundled.
 
 ## Database
 
@@ -115,11 +121,13 @@ Local unit tests cover:
 - duplicate XP rejection and reversion
 - estimated 1RM and PR detection
 - weight trend calculation
+- nutrition-target bounds, macro coherence, and liter-to-milliliter conversion
+- Full Body and selected-split weekly-map scaling across 3/4/5-day routines
 - safe natural-language parsing for habit and custom-quest creation commands
 
 ## Privacy and safety
 
-ASCEND is local-first and has no advertising, tracking, analytics, or external food lookup API. Google sign-in/cloud save is optional and remains inert until the publisher supplies a Firebase project and the player consents. When Firebase AI Logic is configured, SYSTEM sends the player's message and compact plan context for natural-language replies, and Food Vision sends only the photo the player explicitly chooses; local safety responses and the offline chatbot remain available without it. A chosen player photo stays in private local app storage and is not included in progress sync. SYSTEM is not a clinician. Injury answers conservatively surface medical-clearance guidance where appropriate. Nutrition and photo-analysis values are estimates, and packaging labels remain authoritative.
+ASCEND is local-first and has no advertising, tracking, analytics, camera-based food analysis, or external food lookup API. Google sign-in/cloud save is optional and remains inert until the publisher supplies a Firebase project and the player consents. When Firebase AI Logic is configured, SYSTEM sends the player's message and compact plan context for natural-language replies; local safety responses and the offline chatbot remain available without it. A chosen player photo stays in private local app storage and is not included in progress sync. SYSTEM is not a clinician. Injury answers conservatively surface medical-clearance guidance where appropriate. Nutrition values are estimates, and packaging labels remain authoritative.
 
 ## Roadmap
 

@@ -70,7 +70,7 @@ fun QuestsScreen(
     val dailyQuests = quests.filter { it.type == QuestType.DAILY.name }
     val dailyCompleted = dailyQuests.count { quest -> dailyStatus[quest.id] ?: (quest.id in state.questCompletions) }
     LazyColumn(
-        Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 28.dp),
+        Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 18.dp, bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
         item {

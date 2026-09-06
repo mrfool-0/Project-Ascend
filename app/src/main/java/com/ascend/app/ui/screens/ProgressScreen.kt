@@ -43,7 +43,7 @@ fun ProgressScreen(state: DashboardState, templates: List<WorkoutTemplateEntity>
     var tab by rememberSaveable { mutableStateOf(ProgressTab.OVERVIEW) }
     var logWeight by remember { mutableStateOf(false) }
     LazyColumn(
-        Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 28.dp),
+        Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 18.dp, bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         item {

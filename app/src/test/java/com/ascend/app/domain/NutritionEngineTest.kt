@@ -20,4 +20,21 @@ class NutritionEngineTest {
         assertEquals(1.0, NutritionEngine.adherence(2_000, 2_000), 0.0)
         assertTrue(NutritionEngine.adherence(800, 2_000) < NutritionEngine.adherence(1_900, 2_000))
     }
+
+    @Test fun `generated targets remain editable-rule safe at supported extremes`() {
+        listOf(
+            NutritionEngine.calculate(25.0, 100.0, 100, BiologicalSex.FEMALE, ActivityLevel.SEDENTARY, Objective.FAT_LOSS),
+            NutritionEngine.calculate(400.0, 250.0, 18, BiologicalSex.MALE, ActivityLevel.VERY_ACTIVE, Objective.MUSCLE_GAIN),
+        ).forEach { target ->
+            assertTrue(
+                NutritionTargetRules.isValid(
+                    target.calories,
+                    target.proteinGrams,
+                    target.carbohydrateGrams,
+                    target.fatGrams,
+                    target.waterMl,
+                ),
+            )
+        }
+    }
 }

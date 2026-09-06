@@ -75,7 +75,7 @@ fun ProfileSettingsScreen(
 
     LazyColumn(
         Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 28.dp),
+        contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 18.dp, bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(22.dp),
     ) {
         item {
@@ -163,6 +163,8 @@ fun ProfileSettingsScreen(
                 HorizontalDivider(Modifier.padding(vertical = 12.dp), color = Hairline.copy(.65f))
                 PlanLine(Icons.Outlined.FitnessCenter, "Training", "${profile?.workoutFrequency ?: 0} days · ${formatWorkoutDays(profile?.workoutDays)}")
                 HorizontalDivider(Modifier.padding(vertical = 12.dp), color = Hairline.copy(.65f))
+                PlanLine(Icons.Outlined.AccountTree, "Split", profile?.trainingSplit?.humanize() ?: "Auto")
+                HorizontalDivider(Modifier.padding(vertical = 12.dp), color = Hairline.copy(.65f))
                 PlanLine(Icons.Outlined.CenterFocusStrong, "Focus", profile?.focusAreas?.humanizeList() ?: "Balanced")
                 HorizontalDivider(Modifier.padding(vertical = 12.dp), color = Hairline.copy(.65f))
                 PlanLine(Icons.Outlined.HealthAndSafety, "Considerations", profile?.injuries?.humanizeList()?.ifBlank { "None reported" } ?: "None reported")
@@ -221,7 +223,7 @@ fun ProfileSettingsScreen(
                     subtitle = "Local-first by default",
                 ) {
                     Text(
-                        "Your profile, workouts, food log and chat history remain on this device. A compact progress snapshot is uploaded only after you explicitly link Google. Food photos and chat context are sent to Firebase AI only when you use those features.",
+                        "Your profile, workouts, food log and chat history remain on this device. A compact progress snapshot is uploaded only after you explicitly link Google. Compact player context is sent to Firebase AI only when you use online SYSTEM; ASCEND does not upload meal photos.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = TextSecondary,
                     )
@@ -251,7 +253,7 @@ fun ProfileSettingsScreen(
                     subtitle = "Libraries, fonts and licenses",
                 ) {
                     Text(
-                        "AndroidX, Jetpack Compose, Kotlin and Coil are used under Apache License 2.0. Manrope and JetBrains Mono are used under the SIL Open Font License 1.1. Full font license texts are bundled with ASCEND; complete attribution is included in the project's THIRD_PARTY_NOTICES.md.",
+                        "AndroidX, Jetpack Compose, Kotlin, Coil, and the Firebase Android SDK use Apache License 2.0 components. Manrope and JetBrains Mono use the SIL Open Font License 1.1. The isolated Remotion/Three render toolchain has separate terms documented in the repository; complete attribution is in THIRD_PARTY_NOTICES.md.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = TextSecondary,
                     )

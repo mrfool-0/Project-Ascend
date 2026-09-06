@@ -25,6 +25,7 @@ data class UserProfileEntity(
     val injuries: String = "NONE",
     val injuryNotes: String = "",
     val workoutFrequency: Int = 3,
+    val trainingSplit: String = "AUTO",
     val workoutDays: String = "1,3,5",
     val futureVision: String = "",
     val coreReason: String = "",

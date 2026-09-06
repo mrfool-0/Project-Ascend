@@ -23,6 +23,7 @@ interface AscendDao {
     @Query("SELECT * FROM food WHERE id = :id") suspend fun foodById(id: String): FoodEntity?
     @Query("SELECT * FROM food WHERE barcode = :barcode LIMIT 1") suspend fun foodByBarcode(barcode: String): FoodEntity?
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsertFood(value: FoodEntity)
+    @Insert(onConflict = OnConflictStrategy.IGNORE) suspend fun insertFoodIfAbsent(value: FoodEntity): Long
     @Update suspend fun updateFood(value: FoodEntity)
     @Insert suspend fun insertFoodLog(value: FoodLogEntity)
     @Delete suspend fun deleteFoodLog(value: FoodLogEntity)

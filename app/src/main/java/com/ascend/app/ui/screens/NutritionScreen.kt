@@ -1,13 +1,5 @@
 package com.ascend.app.ui.screens
 
-import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.ImageDecoder
-import android.net.Uri
-import android.os.Build
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -19,31 +11,23 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
-import androidx.core.content.FileProvider
 import com.ascend.app.DashboardState
-import com.ascend.app.cloud.FoodVisionResult
-import com.ascend.app.cloud.FoodVisionService
 import com.ascend.app.core.database.FoodEntity
 import com.ascend.app.core.database.FoodLogEntity
 import com.ascend.app.core.database.FoodLogWithFood
 import com.ascend.app.core.database.SavedMealEntity
 import com.ascend.app.domain.MealType
+import com.ascend.app.domain.NutritionTargetRules
 import com.ascend.app.ui.components.*
 import com.ascend.app.ui.theme.*
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.io.File
 import java.time.LocalDate
 import java.time.LocalTime
 
@@ -82,7 +66,7 @@ fun NutritionScreen(
         else -> MealType.SNACKS
     }
     LazyColumn(
-        Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 28.dp),
+        Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 18.dp, bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(22.dp),
     ) {
         item {
@@ -120,7 +104,7 @@ fun NutritionScreen(
             }
         }
         item {
-            SystemButton("Scan or add food", { addMeal = suggestedMeal }, Modifier.fillMaxWidth())
+            SystemButton("Add food", { addMeal = suggestedMeal }, Modifier.fillMaxWidth())
             Spacer(Modifier.height(7.dp))
             Text("Opens ${suggestedMeal.name.lowercase()} by default. You can change the meal before saving.", style = MaterialTheme.typography.bodySmall, color = TextTertiary)
         }
@@ -208,82 +192,11 @@ private fun FoodDialog(
     var sodium by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var search by remember { mutableStateOf("") }
-    var analyzing by remember { mutableStateOf(false) }
-    var visionResult by remember { mutableStateOf<FoodVisionResult?>(null) }
-    var cameraUri by remember { mutableStateOf<Uri?>(null) }
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val foodVision = remember(context) { FoodVisionService(context.applicationContext) }
-
-    fun applyVisionResult(result: FoodVisionResult) {
-        visionResult = result
-        name = result.name
-        quantity = formatDecimal(result.servingGrams)
-        unit = "g"
-        calories = formatDecimal(result.calories)
-        protein = formatDecimal(result.protein)
-        carbs = formatDecimal(result.carbs)
-        fat = formatDecimal(result.fat)
-        fiber = formatDecimal(result.fiber)
-        sugar = formatDecimal(result.sugar)
-        saturatedFat = formatDecimal(result.saturatedFat)
-        sodium = formatDecimal(result.sodiumMg)
-        servings = "1"
-        tab = 1
-    }
-
-    fun analyzePhoto(bitmap: Bitmap) {
-        analyzing = true
-        visionResult = null
-        error = null
-        scope.launch {
-            try {
-                foodVision.analyze(bitmap)
-                    .onSuccess(::applyVisionResult)
-                    .onFailure { error = it.message ?: "SYSTEM could not analyze this food photo" }
-            } finally {
-                bitmap.recycle()
-                analyzing = false
-            }
-        }
-    }
-    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { saved ->
-        val uri = cameraUri
-        if (saved && uri != null) scope.launch {
-            val bitmap = withContext(Dispatchers.IO) { decodeScaledBitmap(context, uri) }
-            if (bitmap != null) analyzePhoto(bitmap) else error = "Unable to read the camera photo"
-        } else error = "Camera photo was cancelled"
-    }
-    val photoLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) scope.launch {
-            val bitmap = withContext(Dispatchers.IO) { decodeScaledBitmap(context, uri) }
-            if (bitmap != null) analyzePhoto(bitmap) else error = "Unable to read that image"
-        }
-    }
-    fun openCamera() {
-        val folder = File(context.cacheDir, "camera").apply { mkdirs() }
-        val file = File(folder, "food_${System.currentTimeMillis()}.jpg")
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
-        cameraUri = uri
-        cameraLauncher.launch(uri)
-    }
     Dialog(onDismissRequest = onDismiss) {
         Surface(shape = MaterialTheme.shapes.extraLarge, color = DeepSurface, border = androidx.compose.foundation.BorderStroke(.75.dp, Hairline)) {
-            Column(Modifier.padding(20.dp).fillMaxWidth().heightIn(max = 720.dp)) {
+            Column(Modifier.padding(24.dp).fillMaxWidth().heightIn(max = 720.dp)) {
                 Text("Add to ${meal.name.lowercase().replaceFirstChar(Char::uppercase)}", style = MaterialTheme.typography.headlineMedium)
                 Spacer(Modifier.height(8.dp))
-                Text("VISION FOOD SCAN", style = MaterialTheme.typography.labelMedium, color = EnergyCyan)
-                Text("Photograph the full plate. SYSTEM identifies the food and estimates the visible portion, calories, macros, fiber, sugar, saturated fat, and sodium.", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
-                Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SystemButton(if (analyzing) "Analyzing…" else "Take photo", ::openCamera, Modifier.weight(1f), enabled = !analyzing, secondary = true)
-                    SystemButton("Choose photo", { photoLauncher.launch("image/*") }, Modifier.weight(1f), enabled = !analyzing, secondary = true)
-                }
-                if (analyzing) {
-                    Spacer(Modifier.height(7.dp))
-                    LinearProgressIndicator(Modifier.fillMaxWidth(), color = EnergyCyan, trackColor = Hairline)
-                }
-                Text("Photo analysis is approximate and is sent to Firebase AI Logic only when you choose a photo. Review every value before logging.", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
                 if (error != null) {
                     Spacer(Modifier.height(6.dp))
                     Text(error!!, color = EnergyCrimson, style = MaterialTheme.typography.bodySmall)
@@ -324,10 +237,6 @@ private fun FoodDialog(
                         Modifier.heightIn(max = 390.dp).verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        visionResult?.let { result ->
-                            Text("VISION ESTIMATE • ${(result.confidence * 100).toInt()}% CONFIDENCE • ${result.servingDescription}", style = MaterialTheme.typography.labelMedium, color = EnergyCyan)
-                            Text(result.notes, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
-                        }
                         AscendTextField(name, { name = it }, "FOOD NAME")
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             AscendTextField(quantity, { quantity = it }, "SERVING", true, Modifier.weight(1f))
@@ -392,20 +301,24 @@ private fun TargetDialog(state: DashboardState, onDismiss: () -> Unit, onSave: (
     var water by remember { mutableStateOf(target.waterMl.toString()) }
     val values = listOf(calories, protein, carbs, fat, water).map { it.toIntOrNull() }
     val valid = values.all { it != null } &&
-        values[0]!! in 1_000..10_000 && values[1]!! in 1..1_000 &&
-        values[2]!! in 0..2_000 && values[3]!! in 0..500 && values[4]!! in 500..6_000 &&
-        values[1]!! * 4 + values[2]!! * 4 + values[3]!! * 9 <= values[0]!! * 1.5
+        NutritionTargetRules.isValid(values[0]!!, values[1]!!, values[2]!!, values[3]!!, values[4]!!)
     Dialog(onDismissRequest = onDismiss) {
         Surface(shape = MaterialTheme.shapes.extraLarge, color = DeepSurface, border = androidx.compose.foundation.BorderStroke(.75.dp, Hairline)) {
-            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            Column(Modifier.padding(24.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(9.dp)) {
                 Text("Edit nutrition targets", style = MaterialTheme.typography.headlineMedium)
                 Text("Estimates remain visible in your profile. Manual targets take effect immediately.", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
-                AscendTextField(calories, { calories = it }, "CALORIES", true)
-                AscendTextField(protein, { protein = it }, "PROTEIN G", true)
-                AscendTextField(carbs, { carbs = it }, "CARBS G", true)
-                AscendTextField(fat, { fat = it }, "FAT G", true)
-                AscendTextField(water, { water = it }, "WATER ML", true)
-                if (!valid) Text("Use supported values and keep macro energy reasonably aligned with calories.", style = MaterialTheme.typography.bodySmall, color = EnergyAmber)
+                AscendTextField(calories, { calories = NutritionTargetRules.boundedIntegerInput(it, NutritionTargetRules.MAX_CALORIES) }, "CALORIES", true)
+                AscendTextField(protein, { protein = NutritionTargetRules.boundedIntegerInput(it, NutritionTargetRules.MAX_PROTEIN) }, "PROTEIN G", true)
+                AscendTextField(carbs, { carbs = NutritionTargetRules.boundedIntegerInput(it, NutritionTargetRules.MAX_CARBS) }, "CARBS G", true)
+                AscendTextField(fat, { fat = NutritionTargetRules.boundedIntegerInput(it, NutritionTargetRules.MAX_FAT) }, "FAT G", true)
+                AscendTextField(water, { water = NutritionTargetRules.boundedIntegerInput(it, NutritionTargetRules.MAX_WATER_ML) }, "WATER ML", true)
+                Text(
+                    values[4]?.let(NutritionTargetRules::waterLabel) ?: "Enter water in milliliters · maximum 6.00 L",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = EnergyCyan,
+                )
+                MacroBalanceFeedback(calories, protein, carbs, fat)
+                if (!valid) Text("Calories 1,000–8,000 · protein 20–400 g · carbs 0–1,000 g · fat 20–250 g · water 0.5–6.0 L. Macro energy must remain within 70–120% of calories.", style = MaterialTheme.typography.bodySmall, color = EnergyAmber)
                 SystemButton(
                     "Save targets",
                     { onSave(values[0]!!, values[1]!!, values[2]!!, values[3]!!, values[4]!!); onDismiss() },
@@ -424,7 +337,7 @@ fun NumberDialog(title: String, label: String, onDismiss: () -> Unit, onSubmit: 
     val amount = value.toIntOrNull()?.takeIf { it in 1..2_000 }
     Dialog(onDismissRequest = onDismiss) {
         Surface(shape = MaterialTheme.shapes.extraLarge, color = DeepSurface, border = androidx.compose.foundation.BorderStroke(.75.dp, Hairline)) {
-            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(title.lowercase().replaceFirstChar(Char::uppercase), style = MaterialTheme.typography.headlineMedium)
                 AscendTextField(value, { value = it.filter(Char::isDigit) }, label, true)
                 Text("Enter 1–2,000 ml.", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
@@ -436,7 +349,6 @@ fun NumberDialog(title: String, label: String, onDismiss: () -> Unit, onSubmit: 
 }
 
 private fun formatQuantity(value: Double): String = if (value % 1.0 == 0.0) value.toInt().toString() else "%.1f".format(value)
-private fun formatDecimal(value: Double): String = if (value % 1.0 == 0.0) value.toInt().toString() else "%.1f".format(value)
 
 @Composable
 private fun NutrientMini(label: String, value: String, modifier: Modifier = Modifier) {
@@ -446,28 +358,4 @@ private fun NutrientMini(label: String, value: String, modifier: Modifier = Modi
             Text(value, style = MaterialTheme.typography.titleSmall, maxLines = 1)
         }
     }
-}
-
-private fun decodeScaledBitmap(context: Context, uri: Uri, maxDimension: Int = 1600): Bitmap? {
-    return runCatching { if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-        val source = ImageDecoder.createSource(context.contentResolver, uri)
-        ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
-            val width = info.size.width
-            val height = info.size.height
-            val longest = maxOf(width, height)
-            if (longest > maxDimension) {
-                val ratio = maxDimension.toDouble() / longest
-                decoder.setTargetSize((width * ratio).toInt().coerceAtLeast(1), (height * ratio).toInt().coerceAtLeast(1))
-            }
-            decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
-        }
-    } else {
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
-        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) error("Invalid image")
-        var sample = 1
-        while (maxOf(bounds.outWidth, bounds.outHeight) / sample > maxDimension) sample *= 2
-        val options = BitmapFactory.Options().apply { inSampleSize = sample }
-        context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
-    } }.getOrNull()
 }

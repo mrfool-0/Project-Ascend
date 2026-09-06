@@ -18,7 +18,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         AchievementEntity::class, UnlockedAchievementEntity::class, DailySummaryEntity::class,
         SystemMessageEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class AscendDatabase : RoomDatabase() {
@@ -29,7 +29,7 @@ abstract class AscendDatabase : RoomDatabase() {
 
         fun create(context: Context): AscendDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(context.applicationContext, AscendDatabase::class.java, "ascend.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 .build()
                 .also { instance = it }
         }
@@ -61,6 +61,12 @@ abstract class AscendDatabase : RoomDatabase() {
                 if ("saturatedFatGrams" !in existing) db.execSQL("ALTER TABLE food ADD COLUMN saturatedFatGrams REAL")
                 if ("sugarGrams" !in existing) db.execSQL("ALTER TABLE food ADD COLUMN sugarGrams REAL")
                 if ("sodiumMg" !in existing) db.execSQL("ALTER TABLE food ADD COLUMN sodiumMg REAL")
+            }
+        }
+
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE user_profile ADD COLUMN trainingSplit TEXT NOT NULL DEFAULT 'AUTO'")
             }
         }
     }

@@ -17,7 +17,8 @@ google-services.json
 # Generated project artifacts
 outputs/
 work/
+.firebase/
+*-debug.log
 
 # Platform files
 .DS_Store
-
