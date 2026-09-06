@@ -1,15 +1,15 @@
 package com.ascend.app.ui.components
 
 import android.annotation.SuppressLint
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.GenericShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -18,27 +18,75 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
+import com.ascend.app.R
 import com.ascend.app.domain.LevelProgress
 import com.ascend.app.ui.theme.*
-import kotlin.math.min
+import coil3.compose.AsyncImage
+import java.io.File
+val AngularShape: Shape = RoundedCornerShape(18.dp)
+val CompactShape: Shape = RoundedCornerShape(13.dp)
+val PillShape: Shape = RoundedCornerShape(50)
 
-val AngularShape = GenericShape { size, _ ->
-    val cut = min(size.width, size.height) * .10f
-    moveTo(cut, 0f); lineTo(size.width, 0f); lineTo(size.width, size.height - cut)
-    lineTo(size.width - cut, size.height); lineTo(0f, size.height); lineTo(0f, cut); close()
+@Composable
+fun SystemAvatar(modifier: Modifier = Modifier, size: Dp = 36.dp) {
+    Image(
+        painter = painterResource(R.drawable.system_hooded_avatar),
+        contentDescription = "ASCEND SYSTEM hooded avatar",
+        contentScale = ContentScale.Crop,
+        modifier = modifier
+            .size(size)
+            .shadow(8.dp, RoundedCornerShape(size * .28f), ambientColor = EnergyCyan.copy(.22f), spotColor = EnergyViolet.copy(.35f))
+            .clip(RoundedCornerShape(size * .28f))
+            .border(.75.dp, EnergyCyan.copy(alpha = .58f), RoundedCornerShape(size * .28f)),
+    )
+}
+
+@Composable
+fun PlayerAvatar(imagePath: String?, modifier: Modifier = Modifier, size: Dp = 72.dp) {
+    Box(
+        modifier = modifier
+            .size(size)
+            .shadow(10.dp, CircleShape, ambientColor = EnergyViolet.copy(.2f), spotColor = EnergyViolet.copy(.25f))
+            .clip(CircleShape)
+            .background(DeepSurface)
+            .border(1.dp, EnergyViolet.copy(alpha = .6f), CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (imagePath != null) {
+            AsyncImage(
+                model = File(imagePath),
+                contentDescription = "Player profile image",
+                contentScale = ContentScale.Crop,
+                placeholder = painterResource(R.drawable.ic_ascend),
+                error = painterResource(R.drawable.ic_ascend),
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            Image(
+                painter = painterResource(R.drawable.ic_ascend),
+                contentDescription = "Default player profile image",
+                modifier = Modifier.fillMaxSize(.62f),
+            )
+        }
+    }
 }
 
 @Composable
@@ -49,20 +97,35 @@ fun AscendCard(
     onClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val interaction = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
+    val shape = MaterialTheme.shapes.large
+    val interaction = if (onClick != null) {
+        Modifier.clickable(onClick = onClick)
+    } else Modifier
     Column(
         modifier
-            .then(interaction)
+            .shadow(
+                elevation = if (highlighted) 12.dp else 3.dp,
+                shape = shape,
+                ambientColor = accent.copy(alpha = if (highlighted) .16f else .04f),
+                spotColor = accent.copy(alpha = if (highlighted) .18f else .04f),
+            )
+            .clip(shape)
             .drawBehind {
-                if (highlighted) drawCircle(accent.copy(alpha = .10f), radius = size.maxDimension * .7f, center = Offset(size.width * .8f, 0f))
+                if (highlighted) {
+                    drawCircle(accent.copy(alpha = .11f), radius = size.maxDimension * .72f, center = Offset(size.width * .9f, 0f))
+                }
             }
             .background(
-                Brush.linearGradient(listOf(RaisedSurface.copy(alpha = .96f), DeepSurface.copy(alpha = .94f))),
-                AngularShape,
+                Brush.linearGradient(
+                    colors = listOf(
+                        if (highlighted) RaisedSurface.copy(alpha = .98f) else RaisedSurface.copy(alpha = .84f),
+                        DeepSurface.copy(alpha = .96f),
+                    ),
+                ),
             )
-            .border(1.dp, if (highlighted) accent.copy(.65f) else Hairline, AngularShape)
-            .padding(18.dp)
-            .animateContentSize(),
+            .border(.75.dp, if (highlighted) accent.copy(.42f) else Hairline.copy(.82f), shape)
+            .then(interaction)
+            .padding(18.dp),
         content = content,
     )
 }
@@ -71,11 +134,9 @@ fun AscendCard(
 @SuppressLint("ModifierParameter")
 fun SectionHeader(title: String, meta: String? = null, modifier: Modifier = Modifier) {
     Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.width(3.dp).height(16.dp).background(EnergyViolet))
-        Spacer(Modifier.width(9.dp))
-        Text(title.uppercase(), style = MaterialTheme.typography.labelLarge, color = TextPrimary)
+        Text(title, style = MaterialTheme.typography.titleMedium, color = TextPrimary)
         Spacer(Modifier.weight(1f))
-        if (meta != null) Text(meta.uppercase(), style = MaterialTheme.typography.labelMedium, color = EnergyCyan)
+        if (meta != null) StatusPill(meta, EnergyCyan)
     }
 }
 
@@ -85,22 +146,91 @@ fun SystemButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifie
         onClick = onClick,
         modifier = modifier.heightIn(min = 52.dp),
         enabled = enabled,
-        shape = AngularShape,
+        shape = RoundedCornerShape(15.dp),
         colors = ButtonDefaults.buttonColors(
             containerColor = if (secondary) RaisedSurface else EnergyViolet,
             contentColor = TextPrimary,
             disabledContainerColor = Hairline,
         ),
-    ) { Text(text.uppercase(), style = MaterialTheme.typography.labelLarge) }
+        border = if (secondary) androidx.compose.foundation.BorderStroke(.75.dp, Hairline) else null,
+        elevation = ButtonDefaults.buttonElevation(defaultElevation = if (secondary) 0.dp else 3.dp, pressedElevation = 0.dp),
+    ) { Text(text, style = MaterialTheme.typography.labelLarge) }
+}
+
+@Composable
+fun StatusPill(text: String, color: Color, modifier: Modifier = Modifier) {
+    Row(
+        modifier
+            .clip(PillShape)
+            .background(color.copy(alpha = .11f))
+            .border(.75.dp, color.copy(alpha = .24f), PillShape)
+            .padding(horizontal = 10.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(5.dp).background(color, CircleShape))
+        Spacer(Modifier.width(6.dp))
+        Text(text.uppercase(), style = MaterialTheme.typography.labelSmall, color = color, maxLines = 1)
+    }
+}
+
+@Composable
+fun ScreenHeader(
+    title: String,
+    subtitle: String,
+    modifier: Modifier = Modifier,
+    leading: (@Composable () -> Unit)? = null,
+    trailing: (@Composable () -> Unit)? = null,
+) {
+    Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        if (leading != null) {
+            leading()
+            Spacer(Modifier.width(8.dp))
+        }
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.headlineMedium)
+            Spacer(Modifier.height(2.dp))
+            Text(subtitle.uppercase(), style = MaterialTheme.typography.labelMedium, color = TextSecondary)
+        }
+        if (trailing != null) {
+            Spacer(Modifier.width(10.dp))
+            trailing()
+        }
+    }
+}
+
+@Composable
+fun MetricTile(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    accent: Color = TextPrimary,
+    supporting: String? = null,
+) {
+    Column(
+        modifier
+            .clip(MaterialTheme.shapes.medium)
+            .background(Void.copy(alpha = .42f))
+            .border(.75.dp, Hairline.copy(.72f), MaterialTheme.shapes.medium)
+            .padding(14.dp),
+    ) {
+        Text(label.uppercase(), style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+        Spacer(Modifier.height(5.dp))
+        Text(value, style = MaterialTheme.typography.titleLarge, color = accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        supporting?.let {
+            Spacer(Modifier.height(2.dp))
+            Text(it, style = MaterialTheme.typography.bodySmall, color = TextTertiary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
 }
 
 @Composable
 fun XpProgressBar(progress: LevelProgress, modifier: Modifier = Modifier) {
     val animated by animateFloatAsState(progress.fraction, tween(800), label = "xp")
     Column(modifier.semantics { contentDescription = "${progress.xpIntoLevel} of ${progress.xpForNextLevel} experience points" }) {
-        Box(Modifier.fillMaxWidth().height(9.dp).clip(RoundedCornerShape(2.dp)).background(Hairline)) {
+        Box(Modifier.fillMaxWidth().height(7.dp).clip(PillShape).background(Hairline)) {
             Box(
                 Modifier.fillMaxHeight().fillMaxWidth(animated)
+                    .clip(PillShape)
                     .background(Brush.horizontalGradient(listOf(EnergyViolet, EnergyCyan)))
             )
         }
@@ -147,10 +277,10 @@ fun MacroProgressBar(label: String, current: Int, target: Int, unit: String, col
         Spacer(Modifier.height(6.dp))
         LinearProgressIndicator(
             progress = { animated },
-            modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(2.dp)),
+            modifier = Modifier.fillMaxWidth().height(6.dp).clip(PillShape),
             color = color,
             trackColor = Hairline,
-            strokeCap = StrokeCap.Square,
+            strokeCap = StrokeCap.Round,
         )
     }
 }

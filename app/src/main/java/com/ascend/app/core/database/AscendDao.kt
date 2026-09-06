@@ -7,13 +7,16 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Update
+import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface AscendDao {
     @Query("SELECT * FROM user_profile WHERE id = 1") fun observeProfile(): Flow<UserProfileEntity?>
     @Query("SELECT * FROM nutrition_target WHERE profileId = 1") fun observeNutritionTarget(): Flow<NutritionTargetEntity?>
-    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsertProfile(value: UserProfileEntity)
+    // REPLACE deletes the existing parent row before inserting it. Because nutrition_target
+    // cascades on profile deletion, a weight update would otherwise erase nutrition targets.
+    @Upsert suspend fun upsertProfile(value: UserProfileEntity)
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsertNutritionTarget(value: NutritionTargetEntity)
 
     @Query("SELECT * FROM food ORDER BY isFavorite DESC, name") fun observeFoods(): Flow<List<FoodEntity>>
@@ -54,9 +57,12 @@ interface AscendDao {
     @Query("SELECT * FROM workout_session WHERE localDate = :date AND completedAt IS NOT NULL LIMIT 1") suspend fun completedWorkout(date: String): WorkoutSessionEntity?
     @Query("SELECT * FROM workout_session WHERE localDate = :date ORDER BY startedAt DESC LIMIT 1") suspend fun latestWorkout(date: String): WorkoutSessionEntity?
     @Query("SELECT * FROM workout_session ORDER BY startedAt DESC") fun observeWorkoutHistory(): Flow<List<WorkoutSessionEntity>>
-    @Query("SELECT COUNT(*) FROM workout_session WHERE completedAt IS NOT NULL") suspend fun completedWorkoutCount(): Int
+    @Query("SELECT COUNT(*) FROM workout_session AS session INNER JOIN workout_template AS template ON session.templateId = template.id WHERE session.completedAt IS NOT NULL AND template.isRecovery = 0")
+    suspend fun completedWorkoutCount(): Int
     @Query("SELECT COUNT(*) FROM workout_session AS session INNER JOIN workout_template AS template ON session.templateId = template.id WHERE session.completedAt IS NOT NULL AND template.isRecovery = 0 AND session.localDate BETWEEN :start AND :end")
     suspend fun completedTrainingCountBetween(start: String, end: String): Int
+    @Query("SELECT COUNT(*) FROM workout_session WHERE completedAt IS NOT NULL AND templateId != :restTemplateId AND localDate BETWEEN :start AND :end")
+    suspend fun completedScheduledProtocolCountBetween(start: String, end: String, restTemplateId: String): Int
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsertWorkoutSets(values: List<WorkoutSetEntity>)
     @Update suspend fun updateWorkoutSet(value: WorkoutSetEntity)
     @Query("SELECT * FROM workout_set WHERE sessionId = :sessionId ORDER BY exerciseId, setNumber") fun observeWorkoutSets(sessionId: String): Flow<List<WorkoutSetEntity>>
@@ -72,9 +78,13 @@ interface AscendDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsertHabitCompletion(value: HabitCompletionEntity)
     @Query("DELETE FROM habit_completion WHERE habitId = :habitId AND localDate = :date") suspend fun deleteHabitCompletion(habitId: String, date: String)
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsertQuests(values: List<QuestEntity>)
+    // Seeded quests are refreshed on every launch. A REPLACE would delete each parent row and
+    // cascade-delete the player's quest_completion rows, so use an in-place upsert instead.
+    @Upsert suspend fun upsertQuests(values: List<QuestEntity>)
     @Query("SELECT * FROM quest WHERE active = 1 ORDER BY type, category") fun observeQuests(): Flow<List<QuestEntity>>
     @Insert(onConflict = OnConflictStrategy.IGNORE) suspend fun insertQuestCompletion(value: QuestCompletionEntity): Long
+    @Query("DELETE FROM quest_completion WHERE questId = :questId AND sourceDate = :date")
+    suspend fun deleteQuestCompletion(questId: String, date: String)
     @Query("SELECT * FROM quest_completion WHERE sourceDate = :date") fun observeQuestCompletions(date: String): Flow<List<QuestCompletionEntity>>
 
     @Insert(onConflict = OnConflictStrategy.IGNORE) suspend fun insertXp(value: XpTransactionEntity): Long
@@ -85,7 +95,9 @@ interface AscendDao {
     @Query("SELECT COALESCE(SUM(amount), 0) FROM xp_transaction WHERE sourceType = 'HABIT' AND sourceDate = :date") suspend fun habitXpForDate(date: String): Int
     @Query("SELECT * FROM xp_transaction ORDER BY createdAt DESC LIMIT :limit") fun observeXpLedger(limit: Int = 50): Flow<List<XpTransactionEntity>>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsertAchievements(values: List<AchievementEntity>)
+    // Default achievements are immutable seed rows. Ignoring existing IDs preserves their
+    // unlocked_achievement children instead of delete/reinserting the parent rows.
+    @Insert(onConflict = OnConflictStrategy.IGNORE) suspend fun insertAchievementsIfAbsent(values: List<AchievementEntity>)
     @Query("SELECT * FROM achievement ORDER BY category, threshold") fun observeAchievements(): Flow<List<AchievementEntity>>
     @Insert(onConflict = OnConflictStrategy.IGNORE) suspend fun unlockAchievement(value: UnlockedAchievementEntity): Long
     @Query("SELECT * FROM unlocked_achievement") fun observeUnlockedAchievements(): Flow<List<UnlockedAchievementEntity>>

@@ -48,11 +48,21 @@ fun WorkoutScreen(
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("INITIALIZING QUEST…", color = TextSecondary) }
         return
     }
-    var timerSeconds by rememberSaveable { mutableIntStateOf(0) }
-    var recoveryChecks by remember { mutableStateOf(setOf<String>()) }
+    var timerEndMillis by rememberSaveable { mutableLongStateOf(0L) }
+    var timerClock by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    var recoveryChecks by rememberSaveable { mutableStateOf(emptyList<String>()) }
     var showAddExercise by remember { mutableStateOf(false) }
-    LaunchedEffect(timerSeconds) {
-        if (timerSeconds > 0) { delay(1_000); timerSeconds-- }
+    val context = LocalContext.current
+    val timerSeconds = ((timerEndMillis - timerClock + 999) / 1_000).toInt().coerceAtLeast(0)
+    LaunchedEffect(timerEndMillis) {
+        if (timerEndMillis <= System.currentTimeMillis()) return@LaunchedEffect
+        while (System.currentTimeMillis() < timerEndMillis) {
+            timerClock = System.currentTimeMillis()
+            delay(250)
+        }
+        timerClock = System.currentTimeMillis()
+        val vibrator = context.getSystemService(Vibrator::class.java)
+        vibrator?.vibrate(VibrationEffect.createOneShot(120, VibrationEffect.DEFAULT_AMPLITUDE))
     }
     val requiredComplete = if (launch.template.isRecovery) recoveryChecks.size == 5 else sets.isNotEmpty() && sets.all { it.completed }
     val progress = if (launch.template.isRecovery) recoveryChecks.size / 5f else if (sets.isEmpty()) 0f else sets.count { it.completed }.toFloat() / sets.size
@@ -60,23 +70,18 @@ fun WorkoutScreen(
 
     LazyColumn(
         Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 12.dp, bottom = 40.dp),
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 28.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") }
-                Column(Modifier.padding(start = 4.dp)) {
-                    Text("ACTIVE QUEST", style = MaterialTheme.typography.labelMedium, color = EnergyEmerald)
-                    Text(launch.template.name, style = MaterialTheme.typography.headlineMedium)
-                }
-                Spacer(Modifier.weight(1f))
-                Text("+${launch.template.rewardXp} XP", style = MaterialTheme.typography.titleMedium, color = EnergyCyan)
-            }
+            ScreenHeader(
+                title = launch.template.name,
+                subtitle = "Active quest · +${launch.template.rewardXp} XP",
+                leading = { FilledTonalIconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
+                trailing = { StatusPill("${(progress * 100).toInt()}%", if (requiredComplete) EnergyEmerald else EnergyCyan) },
+            )
             Spacer(Modifier.height(12.dp))
-            LinearProgressIndicator({ animatedProgress }, Modifier.fillMaxWidth().height(7.dp), color = EnergyViolet, trackColor = Hairline)
-            Spacer(Modifier.height(7.dp))
-            Text("${(progress * 100).toInt()}% PROTOCOL COMPLETE", style = MaterialTheme.typography.labelMedium, color = TextSecondary)
+            LinearProgressIndicator({ animatedProgress }, Modifier.fillMaxWidth().height(7.dp), color = EnergyViolet, trackColor = Hairline, strokeCap = androidx.compose.ui.graphics.StrokeCap.Round)
         }
         item {
             AscendCard(Modifier.fillMaxWidth(), accent = EnergyCyan) {
@@ -85,11 +90,11 @@ fun WorkoutScreen(
                     Spacer(Modifier.width(10.dp))
                     Column {
                         Text("REST TIMER", style = MaterialTheme.typography.labelMedium, color = TextSecondary)
-                        Text(if (timerSeconds > 0) "%02d:%02d".format(timerSeconds / 60, timerSeconds % 60) else "READY", style = MaterialTheme.typography.titleLarge)
+                        Text(if (timerSeconds > 0) "%02d:%02d".format(timerSeconds / 60, timerSeconds % 60) else "Ready", style = MaterialTheme.typography.titleLarge)
                     }
                     Spacer(Modifier.weight(1f))
                     listOf(90, 120, 180).forEach { seconds ->
-                        TextButton(onClick = { timerSeconds = seconds }) { Text("${seconds}s", style = MaterialTheme.typography.labelMedium) }
+                        TextButton(onClick = { timerEndMillis = System.currentTimeMillis() + seconds * 1_000L; timerClock = System.currentTimeMillis() }) { Text("${seconds / 60}:${(seconds % 60).toString().padStart(2, '0')}", style = MaterialTheme.typography.labelMedium) }
                     }
                 }
             }
@@ -137,13 +142,24 @@ private fun ExerciseCard(
     onUpdateSet: (WorkoutSetEntity, Double, Int, Boolean) -> Unit,
     onRemove: (WorkoutExerciseDetail) -> Unit,
 ) {
+    var showMovementCue by rememberSaveable(detail.link.id) { mutableStateOf(false) }
     AscendCard(Modifier.fillMaxWidth(), accent = if (sets.all { it.completed }) EnergyEmerald else EnergyViolet, highlighted = sets.all { it.completed }) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(detail.exercise.name, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
             IconButton(onClick = { onRemove(detail) }) { Icon(Icons.Outlined.DeleteOutline, "Remove ${detail.exercise.name}", tint = EnergyCrimson) }
         }
-        Text("${sets.size} SETS  •  ${detail.link.minReps}–${detail.link.maxReps} REPS", style = MaterialTheme.typography.labelMedium, color = EnergyCyan)
-        Spacer(Modifier.height(14.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("${sets.size} sets · ${detail.link.minReps}–${detail.link.maxReps} reps", style = MaterialTheme.typography.bodySmall, color = EnergyCyan)
+            Spacer(Modifier.weight(1f))
+            TextButton(onClick = { showMovementCue = !showMovementCue }) { Text(if (showMovementCue) "Hide cue" else "Movement cue") }
+        }
+        AnimatedVisibility(showMovementCue) {
+            Column {
+                Spacer(Modifier.height(8.dp))
+                ExerciseMotionDemo(detail.exercise.name, detail.exercise.muscleGroup)
+                Spacer(Modifier.height(12.dp))
+            }
+        }
         Row(Modifier.fillMaxWidth()) {
             Text("SET", Modifier.width(44.dp), style = MaterialTheme.typography.labelMedium, color = TextSecondary)
             Text("KG", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = TextSecondary)

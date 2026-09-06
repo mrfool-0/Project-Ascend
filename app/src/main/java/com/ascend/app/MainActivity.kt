@@ -4,24 +4,38 @@ import android.Manifest
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ShowChart
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -35,6 +49,8 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.ascend.app.domain.CustomPlanEngine
 import com.ascend.app.ui.components.AngularShape
+import com.ascend.app.ui.components.QuestLaunchOverlay
+import com.ascend.app.ui.components.SystemAvatar
 import com.ascend.app.ui.screens.*
 import com.ascend.app.ui.theme.*
 import kotlinx.coroutines.delay
@@ -47,15 +63,17 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+        )
         setContent { AscendTheme { AscendRoot(viewModel) } }
     }
 }
 
 private enum class MainDestination(val route: String, val label: String, val icon: ImageVector) {
     HOME("home", "HOME", Icons.Outlined.Home),
-    QUESTS("quests", "QUESTS", Icons.Outlined.AutoAwesome),
     NUTRITION("nutrition", "NUTRITION", Icons.Outlined.Restaurant),
-    PROGRESS("progress", "PROGRESS", Icons.AutoMirrored.Outlined.ShowChart),
     HABITS("habits", "HABITS", Icons.Outlined.CheckCircleOutline),
     SYSTEM("system", "SYSTEM", Icons.Outlined.SmartToy),
 }
@@ -63,9 +81,10 @@ private enum class MainDestination(val route: String, val label: String, val ico
 @Composable
 private fun AscendRoot(viewModel: AscendViewModel) {
     val preferences by viewModel.preferences.collectAsStateWithLifecycle()
+    val onboardingError by viewModel.onboardingError.collectAsStateWithLifecycle()
     when {
         preferences == null -> Box(Modifier.fillMaxSize().background(Void), contentAlignment = Alignment.Center) { Text("SYSTEM INITIALIZING", style = MaterialTheme.typography.labelMedium, color = EnergyCyan) }
-        preferences?.onboardingComplete != true -> OnboardingScreen(viewModel::finishOnboarding)
+        preferences?.onboardingComplete != true -> OnboardingScreen(onboardingError, viewModel::finishOnboarding)
         else -> MainNavigation(viewModel, preferences!!)
     }
 }
@@ -73,10 +92,12 @@ private fun AscendRoot(viewModel: AscendViewModel) {
 @Composable
 private fun MainNavigation(viewModel: AscendViewModel, preferences: com.ascend.app.core.datastore.AppPreferences) {
     val navController = rememberNavController()
+    val currentDate by viewModel.currentDate.collectAsStateWithLifecycle()
     val state by viewModel.dashboard.collectAsStateWithLifecycle()
     val foods by viewModel.foods.collectAsStateWithLifecycle()
     val savedMeals by viewModel.savedMeals.collectAsStateWithLifecycle()
     val logs by viewModel.foodLogs.collectAsStateWithLifecycle()
+    val habits by viewModel.habits.collectAsStateWithLifecycle()
     val templates by viewModel.templates.collectAsStateWithLifecycle()
     val quests by viewModel.quests.collectAsStateWithLifecycle()
     val achievements by viewModel.achievements.collectAsStateWithLifecycle()
@@ -89,6 +110,7 @@ private fun MainNavigation(viewModel: AscendViewModel, preferences: com.ascend.a
     val snackbarHost = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var overlay by remember { mutableStateOf<UiEvent?>(null) }
+    var questLaunching by remember { mutableStateOf(false) }
     val haptic = LocalHapticFeedback.current
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
@@ -107,38 +129,91 @@ private fun MainNavigation(viewModel: AscendViewModel, preferences: com.ascend.a
         }
     }
 
-    val todayTemplate = remember(state.profile, templates) {
+    LaunchedEffect(route, activeWorkout, state.profile, state.workoutHistory, currentDate) {
+        if (route == "workout" && activeWorkout == null && state.profile != null) {
+            val resumable = state.workoutHistory.firstOrNull { it.completedAt == null && it.localDate == currentDate.toString() }
+            if (resumable != null) viewModel.restoreWorkout(resumable.id)
+            else navController.popBackStack(MainDestination.HOME.route, false)
+        }
+    }
+
+    val todayTemplate = remember(state.profile, templates, currentDate) {
         val profile = state.profile
         if (profile == null) null else {
             val scheduled = profile.workoutDays.split(',').mapNotNull { it.toIntOrNull() }.map(DayOfWeek::of).toSet()
-            val index = CustomPlanEngine.templateIndexFor(LocalDate.now(), LocalDate.parse(profile.programStartDate), scheduled)
+            val index = CustomPlanEngine.templateIndexFor(currentDate, LocalDate.parse(profile.programStartDate), scheduled)
             templates.firstOrNull { it.rotationIndex == index }
         }
     }
-    fun startWorkout() = viewModel.startWorkout { navController.navigate("workout") { launchSingleTop = true } }
+    fun startWorkout() {
+        if (questLaunching) return
+        questLaunching = true
+        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        scope.launch {
+            delay(1_050)
+            questLaunching = false
+            viewModel.startWorkout { navController.navigate("workout") { launchSingleTop = true } }
+        }
+    }
 
-    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Void, androidx.compose.ui.graphics.Color(0xFF070B16), Void)))) {
+    Box(Modifier.fillMaxSize().background(Void)) {
+        Box(
+            Modifier.fillMaxSize().background(
+                Brush.radialGradient(
+                    colors = listOf(EnergyViolet.copy(alpha = .105f), Color.Transparent),
+                    center = androidx.compose.ui.geometry.Offset(930f, 30f),
+                    radius = 820f,
+                ),
+            ),
+        )
+        Box(
+            Modifier.fillMaxSize().background(
+                Brush.radialGradient(
+                    colors = listOf(EnergyCyan.copy(alpha = .045f), Color.Transparent),
+                    center = androidx.compose.ui.geometry.Offset(30f, 1500f),
+                    radius = 900f,
+                ),
+            ),
+        )
         Scaffold(
-            containerColor = androidx.compose.ui.graphics.Color.Transparent,
+            containerColor = Color.Transparent,
             snackbarHost = { SnackbarHost(snackbarHost) },
             bottomBar = {
                 if (route in MainDestination.entries.map { it.route }) AscendBottomBar(route) { destination ->
-                    navController.navigate(destination.route) {
-                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                        launchSingleTop = true; restoreState = true
+                    if (destination.route != route) {
+                        if (destination == MainDestination.HOME) {
+                            // Home is the root destination. Restoring its saved stack can reopen the
+                            // last sibling tab in a flat graph, so always pop directly to the root.
+                            navController.popBackStack(MainDestination.HOME.route, inclusive = false)
+                        } else {
+                            navController.navigate(destination.route) {
+                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        }
                     }
                 }
             },
         ) { padding ->
-            NavHost(navController, MainDestination.HOME.route, Modifier.padding(padding)) {
+            NavHost(
+                navController = navController,
+                startDestination = MainDestination.HOME.route,
+                modifier = Modifier.padding(padding),
+                enterTransition = { fadeIn(tween(240)) + scaleIn(tween(300), initialScale = .985f) },
+                exitTransition = { fadeOut(tween(150)) + scaleOut(tween(180), targetScale = .99f) },
+                popEnterTransition = { fadeIn(tween(240)) + scaleIn(tween(300), initialScale = .985f) },
+                popExitTransition = { fadeOut(tween(150)) + scaleOut(tween(180), targetScale = .99f) },
+            ) {
                 composable(MainDestination.HOME.route) {
                     HomeScreen(
-                        state, todayTemplate, { navController.navigate("profile") }, ::startWorkout,
-                        { navController.navigate(MainDestination.NUTRITION.route) }, { navController.navigate(MainDestination.PROGRESS.route) },
+                        state, todayTemplate, currentDate, preferences.profileImagePath,
+                        { navController.navigate("profile") }, ::startWorkout,
+                        { navController.navigate(MainDestination.NUTRITION.route) }, { navController.navigate("progress") },
                         { navController.navigate(MainDestination.HABITS.route) }, viewModel::addWater, viewModel::toggleHabit,
                     )
                 }
-                composable(MainDestination.QUESTS.route) { QuestsScreen(state, quests, achievements, unlocked, ::startWorkout) }
+                composable("quests") { QuestsScreen(state, templates, quests, achievements, unlocked, currentDate, { navController.popBackStack() }, ::startWorkout, viewModel::toggleCustomQuest) }
                 composable(MainDestination.NUTRITION.route) {
                     NutritionScreen(
                         state, logs, foods, savedMeals, preferences.mealSections, viewModel::createAndLogFood, viewModel::logFood,
@@ -146,8 +221,8 @@ private fun MainNavigation(viewModel: AscendViewModel, preferences: com.ascend.a
                         viewModel::addWater, viewModel::updateTargets,
                     )
                 }
-                composable(MainDestination.PROGRESS.route) { ProgressScreen(state, viewModel::logWeight) }
-                composable(MainDestination.HABITS.route) { HabitsScreen(state, viewModel::toggleHabit, viewModel::createHabit) }
+                composable("progress") { ProgressScreen(state, templates, { navController.popBackStack() }, viewModel::logWeight) }
+                composable(MainDestination.HABITS.route) { HabitsScreen(state, habits, viewModel::toggleHabit, viewModel::createHabit) }
                 composable(MainDestination.SYSTEM.route) { SystemScreen(state, systemMessages, viewModel::sendSystemMessage, viewModel::clearSystemMessages) }
                 composable("workout") {
                     WorkoutScreen(activeWorkout, activeSets, { navController.popBackStack() }, viewModel::updateSet, viewModel::addWorkoutExercise, viewModel::removeWorkoutExercise) {
@@ -156,27 +231,57 @@ private fun MainNavigation(viewModel: AscendViewModel, preferences: com.ascend.a
                 }
                 composable("profile") {
                     ProfileSettingsScreen(
-                        state, preferences, unlocked, { navController.popBackStack() }, viewModel::updateNotification,
-                        viewModel::updateMealSections, viewModel::updateHealthConnect,
+                        state, templates, preferences, unlocked, { navController.popBackStack() }, viewModel::updateNotification,
+                        viewModel::updateMealSections,
+                        { navController.navigate("progress") }, { navController.navigate("quests") }, viewModel::updateProfileImage,
                     )
                 }
             }
         }
         EventOverlay(overlay)
+        QuestLaunchOverlay(questLaunching)
     }
 }
 
 @Composable
 private fun AscendBottomBar(currentRoute: String?, onSelect: (MainDestination) -> Unit) {
-    NavigationBar(containerColor = DeepSurface.copy(alpha = .98f), tonalElevation = 0.dp) {
-        MainDestination.entries.forEach { destination ->
-            NavigationBarItem(
-                selected = currentRoute == destination.route,
-                onClick = { onSelect(destination) },
-                icon = { Icon(destination.icon, destination.label) },
-                label = { Text(destination.label, style = MaterialTheme.typography.labelMedium) },
-                colors = NavigationBarItemDefaults.colors(selectedIconColor = EnergyCyan, selectedTextColor = EnergyCyan, indicatorColor = EnergyViolet.copy(.16f), unselectedIconColor = TextSecondary, unselectedTextColor = TextSecondary),
-            )
+    Box(
+        Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 14.dp, vertical = 8.dp),
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .shadow(24.dp, RoundedCornerShape(25.dp), ambientColor = Color.Black.copy(.4f), spotColor = Color.Black.copy(.55f))
+                .clip(RoundedCornerShape(25.dp))
+                .background(GlassSurface)
+                .border(.75.dp, Hairline.copy(.9f), RoundedCornerShape(25.dp))
+                .padding(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            MainDestination.entries.forEach { destination ->
+                val selected = currentRoute == destination.route
+                val scale by animateFloatAsState(if (selected) 1f else .94f, spring(stiffness = 500f, dampingRatio = .78f), label = "${destination.route}_scale")
+                val tint = if (selected) EnergyCyan else TextTertiary
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .height(58.dp)
+                        .clip(RoundedCornerShape(19.dp))
+                        .background(if (selected) EnergyViolet.copy(alpha = .13f) else Color.Transparent)
+                        .clickable { onSelect(destination) }
+                        .scale(scale),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        if (selected) Box(Modifier.size(32.dp).background(EnergyCyan.copy(.055f), CircleShape))
+                        if (destination == MainDestination.SYSTEM) SystemAvatar(size = 25.dp)
+                        else Icon(destination.icon, destination.label, Modifier.size(22.dp), tint = tint)
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    Text(destination.label.lowercase().replaceFirstChar(Char::uppercase), style = MaterialTheme.typography.labelSmall, color = tint)
+                }
+            }
         }
     }
 }

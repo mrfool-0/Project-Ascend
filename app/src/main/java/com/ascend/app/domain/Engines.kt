@@ -15,7 +15,7 @@ object NutritionEngine {
     ): NutritionCalculation {
         require(weightKg in 25.0..400.0) { "Weight must be between 25 and 400 kg" }
         require(heightCm in 100.0..250.0) { "Height must be between 100 and 250 cm" }
-        require(age in 13..100) { "Age must be between 13 and 100" }
+        require(age in 18..100) { "ASCEND currently supports adult players aged 18 to 100" }
         val sexOffset = when (sex) {
             BiologicalSex.MALE -> 5
             BiologicalSex.FEMALE -> -161
@@ -81,7 +81,7 @@ object LevelEngine {
 
 object StreakEngine {
     fun calculate(completedDates: Collection<LocalDate>, today: LocalDate): StreakResult {
-        val dates = completedDates.distinct().sorted()
+        val dates = completedDates.filterNot { it.isAfter(today) }.distinct().sorted()
         if (dates.isEmpty()) return StreakResult(0, 0)
         var longest = 1
         var run = 1
@@ -139,7 +139,7 @@ object PersonalRecordEngine {
 
 object WeightTrendEngine {
     fun calculate(entries: List<Pair<LocalDate, Double>>, today: LocalDate): WeightTrend {
-        val sorted = entries.sortedBy { it.first }
+        val sorted = entries.filterNot { it.first.isAfter(today) }.sortedBy { it.first }
         val current = sorted.lastOrNull()?.second
         val average = sorted.filter { !it.first.isBefore(today.minusDays(6)) }.map { it.second }.takeIf { it.isNotEmpty() }?.average()
         val baseline = sorted.lastOrNull { !it.first.isAfter(today.minusDays(30)) }?.second ?: sorted.firstOrNull()?.second

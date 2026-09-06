@@ -21,6 +21,7 @@ data class AppPreferences(
     val theme: String = "VOID",
     val calorieTolerancePercent: Int = 10,
     val healthConnectEnabled: Boolean = false,
+    val profileImagePath: String? = null,
 )
 
 class UserPreferences(private val context: Context) {
@@ -34,6 +35,7 @@ class UserPreferences(private val context: Context) {
         val theme = stringPreferencesKey("theme")
         val tolerance = intPreferencesKey("calorie_tolerance")
         val healthConnect = booleanPreferencesKey("health_connect")
+        val profileImage = stringPreferencesKey("profile_image_path")
     }
 
     val values: Flow<AppPreferences> = context.ascendDataStore.data.map { preferences ->
@@ -48,6 +50,7 @@ class UserPreferences(private val context: Context) {
             theme = preferences[Keys.theme] ?: "VOID",
             calorieTolerancePercent = preferences[Keys.tolerance] ?: 10,
             healthConnectEnabled = preferences[Keys.healthConnect] ?: false,
+            profileImagePath = preferences[Keys.profileImage],
         )
     }
 
@@ -72,5 +75,9 @@ class UserPreferences(private val context: Context) {
 
     suspend fun setHealthConnect(enabled: Boolean) = context.ascendDataStore.edit {
         it[Keys.healthConnect] = enabled
+    }
+
+    suspend fun setProfileImage(path: String?) = context.ascendDataStore.edit {
+        if (path == null) it.remove(Keys.profileImage) else it[Keys.profileImage] = path
     }
 }

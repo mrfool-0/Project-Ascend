@@ -25,4 +25,15 @@ class StreakQuestTest {
         assertTrue(result.values.all { it })
         assertFalse(QuestEngine.weekly(WeeklyQuestProgress(5, 4, .79, 2)).values.any { it })
     }
+
+    @Test fun `weekly training target follows the player frequency`() {
+        val result = QuestEngine.weekly(WeeklyQuestProgress(3, 0, 0.0, 0, workoutTarget = 3))
+        assertTrue(result.getValue("IRON WEEK"))
+    }
+
+    @Test fun `future completions never inflate a current streak`() {
+        val result = StreakEngine.calculate(listOf(today.minusDays(1), today.plusDays(1), today.plusDays(2)), today)
+        assertEquals(1, result.current)
+        assertEquals(1, result.longest)
+    }
 }

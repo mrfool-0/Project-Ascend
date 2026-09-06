@@ -5,6 +5,7 @@ import android.content.Context
 import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
+import androidx.credentials.exceptions.NoCredentialException
 import com.ascend.app.OnboardingProfile
 import com.ascend.app.R
 import com.ascend.app.core.database.DailySummaryEntity
@@ -38,7 +39,11 @@ class GoogleProgressService(private val context: Context) {
             .setServerClientId(context.getString(R.string.google_oauth_web_client_id))
             .build()
         val request = GetCredentialRequest.Builder().addCredentialOption(googleOption).build()
-        val result = CredentialManager.create(context).getCredential(activity, request)
+        val result = try {
+            CredentialManager.create(context).getCredential(activity, request)
+        } catch (error: NoCredentialException) {
+            throw IllegalStateException("No eligible Google account was found. Add an account to this device and try again.", error)
+        }
         val credential = result.credential
         check(credential is CustomCredential && credential.type == TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
             "Google did not return a valid identity credential."

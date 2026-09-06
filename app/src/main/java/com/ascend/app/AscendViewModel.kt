@@ -11,10 +11,13 @@ import com.ascend.app.core.notifications.ReminderScheduler
 import com.ascend.app.domain.HabitType
 import com.ascend.app.domain.MealType
 import com.ascend.app.domain.SystemTone
+import com.ascend.app.domain.TrainingTime
 import com.ascend.app.ui.screens.NewFoodInput
 import com.ascend.app.ui.screens.NewHabitInput
 import com.ascend.app.ui.screens.NewExerciseInput
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
@@ -27,13 +30,17 @@ sealed interface UiEvent {
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class AscendViewModel(application: Application, private val repository: AscendRepository) : AndroidViewModel(application) {
-    private val today = LocalDate.now()
+    private val _currentDate = MutableStateFlow(LocalDate.now())
+    val currentDate: StateFlow<LocalDate> = _currentDate.asStateFlow()
+    private val _onboardingError = MutableStateFlow<String?>(null)
+    val onboardingError: StateFlow<String?> = _onboardingError.asStateFlow()
     val preferences: StateFlow<AppPreferences?> = repository.preferencesFlow().map<AppPreferences, AppPreferences?> { it }
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
-    val dashboard = repository.dashboard(today).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DashboardState())
+    val dashboard = _currentDate.flatMapLatest(repository::dashboard).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DashboardState())
     val foods = repository.foods().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val savedMeals = repository.savedMeals().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-    val foodLogs = repository.foodLogs(today).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val foodLogs = _currentDate.flatMapLatest(repository::foodLogs).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val habits = repository.habits().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val templates = repository.templates().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val quests = repository.quests().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val achievements = repository.achievements().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -51,6 +58,12 @@ class AscendViewModel(application: Application, private val repository: AscendRe
 
     init {
         viewModelScope.launch {
+            while (isActive) {
+                delay(60_000)
+                _currentDate.value = LocalDate.now()
+            }
+        }
+        viewModelScope.launch {
             preferences.filterNotNull().filter { it.onboardingComplete }.first()
             runCatching { repository.seedCoreData() }.onFailure { _events.emit(UiEvent.Message(it.safeMessage())) }
         }
@@ -63,15 +76,24 @@ class AscendViewModel(application: Application, private val repository: AscendRe
         }
     }
 
-    fun finishOnboarding(input: OnboardingProfile) = launchAction("Unable to initialize player") {
-        repository.finishOnboarding(input)
-        listOf("morning" to 8, "workout" to 17, "nutrition" to 14, "evening" to 20).forEach { (category, hour) ->
-            ReminderScheduler.configure(getApplication(), category, true, hour)
-        }
+    fun finishOnboarding(input: OnboardingProfile) = viewModelScope.launch {
+        _onboardingError.value = null
+        runCatching {
+            repository.finishOnboarding(input)
+            val workoutHour = when (input.trainingTime) {
+                TrainingTime.MORNING -> 7
+                TrainingTime.AFTERNOON -> 13
+                TrainingTime.EVENING -> 18
+                TrainingTime.CUSTOM -> 17
+            }
+            listOf("morning" to 8, "workout" to workoutHour, "nutrition" to 14, "evening" to 20).forEach { (category, hour) ->
+                ReminderScheduler.configure(getApplication(), category, true, hour)
+            }
+        }.onFailure { _onboardingError.value = it.safeMessage() }
     }
 
     fun startWorkout(onReady: () -> Unit) = viewModelScope.launch {
-        runCatching { repository.startTodayWorkout(today) }
+        runCatching { repository.startTodayWorkout(_currentDate.value) }
             .onSuccess { _activeWorkout.value = it; onReady() }
             .onFailure { _events.emit(UiEvent.Message(it.safeMessage())) }
     }
@@ -107,24 +129,25 @@ class AscendViewModel(application: Application, private val repository: AscendRe
         }.onFailure { _events.emit(UiEvent.Message(it.safeMessage())) }
     }
 
-    fun addWater(amount: Int) = launchAction { repository.addWater(amount, today); _events.emit(UiEvent.Message("+$amount ml recorded")) }
-    fun toggleHabit(habit: HabitEntity, complete: Boolean) = launchAction { repository.setHabitCompletion(habit, complete, habit.target, today) }
+    fun addWater(amount: Int) = launchAction { repository.addWater(amount, _currentDate.value); _events.emit(UiEvent.Message("+$amount ml recorded")) }
+    fun toggleHabit(habit: HabitEntity, complete: Boolean) = launchAction { repository.setHabitCompletion(habit, complete, habit.target, _currentDate.value) }
+    fun toggleCustomQuest(quest: QuestEntity, complete: Boolean) = launchAction { repository.setCustomQuestCompletion(quest, complete, _currentDate.value) }
     fun createHabit(input: NewHabitInput) = launchAction { repository.createHabit(input.name, input.type, input.target, input.unit, input.difficulty, input.frequency) }
     fun createAndLogFood(input: NewFoodInput) = launchAction {
         repository.createFoodAndLog(
             input.name, input.servingQuantity, input.servingUnit, input.calories,
-            input.protein, input.carbs, input.fat, input.servings, input.meal, today,
+            input.protein, input.carbs, input.fat, input.servings, input.meal, _currentDate.value,
             input.barcode, input.fiber, input.sugar, input.saturatedFat, input.sodiumMg,
         )
     }
-    fun logFood(food: FoodEntity, servings: Double, meal: MealType) = launchAction { repository.logFood(food.id, servings, meal, today) }
+    fun logFood(food: FoodEntity, servings: Double, meal: MealType) = launchAction { repository.logFood(food.id, servings, meal, _currentDate.value) }
     fun deleteFoodLog(log: FoodLogEntity) = launchAction { repository.deleteFoodLog(log) }
-    fun copyPreviousMeal(meal: MealType) = launchAction { repository.copyMeal(today.minusDays(1), meal, today); _events.emit(UiEvent.Message("Previous ${meal.name.lowercase()} copied")) }
+    fun copyPreviousMeal(meal: MealType) = launchAction { repository.copyMeal(_currentDate.value.minusDays(1), meal, _currentDate.value); _events.emit(UiEvent.Message("Previous ${meal.name.lowercase()} copied")) }
     fun saveMeal(name: String, logs: List<FoodLogWithFood>) = launchAction { repository.saveMeal(name, logs); _events.emit(UiEvent.Message("Meal saved")) }
-    fun logSavedMeal(mealId: String, meal: MealType) = launchAction { repository.logSavedMeal(mealId, meal, today); _events.emit(UiEvent.Message("Saved meal added")) }
-    fun logWeight(weight: Double, note: String) = launchAction { repository.addWeight(weight, today, note); _events.emit(UiEvent.Message("Weight recorded • +15 XP")) }
+    fun logSavedMeal(mealId: String, meal: MealType) = launchAction { repository.logSavedMeal(mealId, meal, _currentDate.value); _events.emit(UiEvent.Message("Saved meal added")) }
+    fun logWeight(weight: Double, note: String) = launchAction { repository.addWeight(weight, _currentDate.value, note); _events.emit(UiEvent.Message("Weight recorded • +15 XP")) }
     fun updateTargets(calories: Int, protein: Int, carbs: Int, fat: Int, water: Int) = launchAction { repository.updateNutritionTargets(calories, protein, carbs, fat, water) }
-    fun sendSystemMessage(message: String, tone: SystemTone) = launchAction { repository.sendSystemMessage(message, tone, today) }
+    fun sendSystemMessage(message: String, tone: SystemTone) = launchAction { repository.sendSystemMessage(message, tone, _currentDate.value) }
     fun clearSystemMessages() = launchAction { repository.clearSystemMessages() }
 
     fun updateNotification(category: String, enabled: Boolean) = launchAction {
@@ -133,6 +156,7 @@ class AscendViewModel(application: Application, private val repository: AscendRe
         ReminderScheduler.configure(getApplication(), category, enabled, hour)
     }
     fun updateMealSections(sections: Set<String>) = launchAction { repository.preferences.setMealSections(sections) }
+    fun updateProfileImage(path: String?) = launchAction { repository.preferences.setProfileImage(path) }
     fun updateHealthConnect(enabled: Boolean) = launchAction {
         repository.preferences.setHealthConnect(enabled)
         _events.emit(UiEvent.Message(if (enabled) "Health Connect layer prepared; SDK permissions are not requested in V1" else "Health Connect disabled"))

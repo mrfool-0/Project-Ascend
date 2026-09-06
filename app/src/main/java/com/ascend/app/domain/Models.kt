@@ -89,8 +89,9 @@ data class WeeklyQuestProgress(
     val calorieGoalDays: Int,
     val habitCompletionRatio: Double,
     val progressedExercises: Int,
+    val workoutTarget: Int = 6,
 ) {
-    val ironWeekComplete get() = workouts >= 6
+    val ironWeekComplete get() = workouts >= workoutTarget.coerceAtLeast(1)
     val nutritionControlComplete get() = calorieGoalDays >= 5
     val consistencyComplete get() = habitCompletionRatio >= .8
     val overloadComplete get() = progressedExercises >= 3

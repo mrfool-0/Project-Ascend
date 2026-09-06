@@ -34,6 +34,7 @@ object CustomPlanEngine {
         injuries: Set<InjuryArea>,
         equipment: Equipment,
         experience: Experience,
+        objective: Objective = Objective.GENERAL_HEALTH,
     ): CustomPlan {
         require(frequency in 2..6)
         require(workoutDays.size == frequency)
@@ -44,17 +45,29 @@ object CustomPlanEngine {
             5 -> listOf("PUSH", "PULL", "LEGS", "UPPER", "LOWER")
             else -> listOf("PUSH A", "PULL A", "LEGS A", "PUSH B", "PULL B", "LEGS B")
         }
-        val setCount = when (experience) {
-            Experience.BEGINNER -> 3
-            Experience.INTERMEDIATE -> 3
-            Experience.ADVANCED -> 4
+        val setCount = when {
+            objective == Objective.BUILD_CONSISTENCY -> 2
+            experience == Experience.BEGINNER -> 3
+            experience == Experience.INTERMEDIATE -> 3
+            else -> 4
         }
+        val exerciseLimit = if (experience == Experience.BEGINNER || objective == Objective.BUILD_CONSISTENCY) 4 else 6
         val sessions = base.mapIndexed { index, name ->
+            if (InjuryArea.CARDIOVASCULAR in injuries) {
+                return@mapIndexed PlannedWorkout("CLEARANCE / RECOVERY", 20, emptyList(), recovery = true)
+            }
             val exercises = exercisesFor(name, equipment, setCount, index)
-                .let { addFocusExercise(it, focusAreas, equipment, setCount) }
+                .let { addFocusExercise(it, focusAreas, equipment, setCount, index, exerciseLimit) }
                 .map { adaptForInjuries(it, injuries, equipment) }
+                .map { exercise ->
+                    if (objective == Objective.BUILD_CONSISTENCY) {
+                        exercise.copy(sets = minOf(exercise.sets, setCount))
+                    } else {
+                        exercise
+                    }
+                }
                 .distinctBy { it.name }
-                .take(if (experience == Experience.BEGINNER) 5 else 6)
+                .take(exerciseLimit)
             PlannedWorkout(name, 12 + exercises.sumOf { it.sets * 3 }, exercises)
         }
         val safety = buildList {
@@ -63,7 +76,7 @@ object CustomPlanEngine {
             add("Begin below maximum effort, preserve technique, and progress only after every target rep is controlled.")
         }
         return CustomPlan(
-            title = "${frequency}-DAY ${focusAreas.firstOrNull()?.name?.replace('_', ' ') ?: "BALANCED"} PROTOCOL",
+            title = "${frequency}-DAY ${objective.name.replace('_', ' ')} PROTOCOL",
             workouts = sessions + PlannedWorkout("RECOVERY PROTOCOL", 20, emptyList(), recovery = true),
             weeklyDays = workoutDays.sortedBy { it.value },
             safetyNotes = safety,
@@ -115,20 +128,28 @@ object CustomPlanEngine {
         focus: Set<FocusArea>,
         equipment: Equipment,
         sets: Int,
+        workoutIndex: Int,
+        exerciseLimit: Int,
     ): List<PlannedExercise> {
-        val focusMove = when {
-            FocusArea.GLUTES in focus -> move("Hip Thrust", "Glute Bridge", "Dumbbell Hip Thrust", equipment, "Glutes", sets, 8, 15)
-            FocusArea.CHEST in focus -> move("Chest Fly", "Wide Push-up", "Dumbbell Fly", equipment, "Chest", 3, 10, 15)
-            FocusArea.BACK in focus -> move("Machine Row", "Superman Row", "Dumbbell Pullover", equipment, "Back", 3, 10, 15)
-            FocusArea.SHOULDERS in focus -> move("Machine Lateral Raise", "Pike Hold", "Dumbbell Lateral Raise", equipment, "Shoulders", 3, 12, 20)
-            FocusArea.ARMS in focus -> move("Cable Curl", "Close-grip Push-up", "Hammer Curl", equipment, "Arms", 3, 10, 15)
-            FocusArea.CORE in focus -> PlannedExercise("Side Plank", "Core", 3, 20, 40)
-            FocusArea.LEGS in focus -> move("Leg Extension", "Reverse Lunge", "Dumbbell Split Squat", equipment, "Legs", 3, 10, 15)
-            FocusArea.ENDURANCE in focus -> PlannedExercise("Zone 2 Finisher", "Endurance", 1, 10, 20)
-            FocusArea.MOBILITY in focus -> PlannedExercise("Mobility Flow", "Mobility", 1, 8, 12)
-            else -> null
+        val selectedFocus = focus.sortedBy { it.ordinal }.takeIf { it.isNotEmpty() }
+            ?.let { it[Math.floorMod(workoutIndex, it.size)] }
+        val focusMove = when (selectedFocus) {
+            FocusArea.GLUTES -> move("Hip Thrust", "Glute Bridge", "Dumbbell Hip Thrust", equipment, "Glutes", sets, 8, 15)
+            FocusArea.CHEST -> move("Chest Fly", "Wide Push-up", "Dumbbell Fly", equipment, "Chest", 3, 10, 15)
+            FocusArea.BACK -> move("Machine Row", "Superman Row", "Dumbbell Pullover", equipment, "Back", 3, 10, 15)
+            FocusArea.SHOULDERS -> move("Machine Lateral Raise", "Pike Hold", "Dumbbell Lateral Raise", equipment, "Shoulders", 3, 12, 20)
+            FocusArea.ARMS -> move("Cable Curl", "Close-grip Push-up", "Hammer Curl", equipment, "Arms", 3, 10, 15)
+            FocusArea.CORE -> PlannedExercise("Side Plank", "Core", 3, 20, 40)
+            FocusArea.LEGS -> move("Leg Extension", "Reverse Lunge", "Dumbbell Split Squat", equipment, "Legs", 3, 10, 15)
+            FocusArea.ENDURANCE -> PlannedExercise("Zone 2 Finisher", "Endurance", 1, 10, 20)
+            FocusArea.MOBILITY -> PlannedExercise("Mobility Flow", "Mobility", 1, 8, 12)
+            null -> null
         }
-        return if (focusMove == null || current.any { it.muscleGroup == focusMove.muscleGroup }) current else current + focusMove
+        if (focusMove == null || current.any { it.name == focusMove.name }) return current
+        val coreIndex = current.indexOfFirst { it.muscleGroup == "Core" }
+        val latestRetainedIndex = (exerciseLimit - 1).coerceAtLeast(0)
+        val insertionIndex = minOf(if (coreIndex == -1) current.size else coreIndex, latestRetainedIndex)
+        return current.toMutableList().apply { add(insertionIndex, focusMove) }
     }
 
     private fun adaptForInjuries(exercise: PlannedExercise, injuries: Set<InjuryArea>, equipment: Equipment): PlannedExercise = when {
@@ -137,13 +158,15 @@ object CustomPlanEngine {
         InjuryArea.SHOULDER in injuries && exercise.name.contains(Regex("Overhead|Pike|Lateral")) -> PlannedExercise("Pain-free Scapular Control", "Shoulders", 2, 10, 15)
         InjuryArea.WRIST in injuries && exercise.name.contains("Push-up") -> move("Machine Chest Press", "Forearm Plank", "Neutral-grip Floor Press", equipment, "Chest", 3, 8, 12)
         InjuryArea.ANKLE in injuries && exercise.name.contains(Regex("Calf|Lunge")) -> PlannedExercise("Seated Leg Extension", "Legs", 3, 10, 15)
+        InjuryArea.HIP in injuries && exercise.name.contains(Regex("Squat|Lunge|Deadlift|Hip Hinge|Leg Press")) -> PlannedExercise("Clinician-approved Hip Isometric", "Glutes", 2, 10, 20)
         else -> exercise
     }
 
     private fun move(gym: String, bodyweight: String, dumbbell: String, equipment: Equipment, group: String, sets: Int, min: Int, max: Int) =
         PlannedExercise(
             when (equipment) {
-                Equipment.FULL_GYM, Equipment.HOME_GYM -> gym
+                Equipment.FULL_GYM -> gym
+                Equipment.HOME_GYM -> dumbbell
                 Equipment.DUMBBELLS -> dumbbell
                 Equipment.BODYWEIGHT -> bodyweight
             },

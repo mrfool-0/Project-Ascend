@@ -2,6 +2,7 @@ package com.ascend.app.cloud
 
 import android.content.Context
 import android.graphics.Bitmap
+import androidx.core.graphics.scale
 import com.google.firebase.Firebase
 import com.google.firebase.FirebaseApp
 import com.google.firebase.ai.ai
@@ -62,20 +63,24 @@ class FoodVisionService(private val context: Context) {
             },
         )
         val image = bitmap.downscaled(maxSide = 1536)
-        val prompt = content {
-            image(image)
-            text(
-                """
-                Analyze only the food visibly present in this image. Identify the complete dish or meal,
-                estimate the entire visible edible portion, and estimate its nutrition. Account for likely
-                cooking oil, sauces, and mixed ingredients, but do not invent items that are not reasonably
-                visible. If no food is visible, set food_name to NO_FOOD. Return nutrition for the full visible
-                portion, not per 100 grams. This is an approximate logging aid, never a medical measurement.
-                """.trimIndent(),
-            )
+        try {
+            val prompt = content {
+                image(image)
+                text(
+                    """
+                    Analyze only the food visibly present in this image. Identify the complete dish or meal,
+                    estimate the entire visible edible portion, and estimate its nutrition. Account for likely
+                    cooking oil, sauces, and mixed ingredients, but do not invent items that are not reasonably
+                    visible. If no food is visible, set food_name to NO_FOOD. Return nutrition for the full visible
+                    portion, not per 100 grams. This is an approximate logging aid, never a medical measurement.
+                    """.trimIndent(),
+                )
+            }
+            val responseText = model.generateContent(prompt).text ?: error("Food Vision returned no estimate.")
+            parse(responseText)
+        } finally {
+            if (image !== bitmap) image.recycle()
         }
-        val responseText = model.generateContent(prompt).text ?: error("Food Vision returned no estimate.")
-        parse(responseText)
     }
 
     private fun parse(json: String): FoodVisionResult {
@@ -103,7 +108,7 @@ class FoodVisionService(private val context: Context) {
         val largest = maxOf(width, height)
         if (largest <= maxSide) return this
         val ratio = maxSide.toDouble() / largest
-        return Bitmap.createScaledBitmap(this, (width * ratio).roundToInt(), (height * ratio).roundToInt(), true)
+        return scale((width * ratio).roundToInt(), (height * ratio).roundToInt())
     }
 
     private fun Double.bounded(min: Double, max: Double): Double = coerceIn(min, max)

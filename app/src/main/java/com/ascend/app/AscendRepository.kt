@@ -7,7 +7,11 @@ import com.ascend.app.core.datastore.AppPreferences
 import com.ascend.app.core.datastore.UserPreferences
 import com.ascend.app.domain.*
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.time.LocalDate
 import java.time.Period
 import java.time.DayOfWeek
@@ -58,6 +62,7 @@ data class DashboardState(
     val trainingVolume: Double = 0.0,
     val workoutHistory: List<WorkoutSessionEntity> = emptyList(),
     val dailySummaries: List<DailySummaryEntity> = emptyList(),
+    val questCompletions: Set<String> = emptySet(),
 )
 
 data class WorkoutLaunch(
@@ -89,6 +94,8 @@ class AscendRepository(
     private val cloudProgress: GoogleProgressService,
     private val systemAi: SystemAiService,
 ) {
+    private val dailySummaryMutex = Mutex()
+
     fun preferencesFlow(): Flow<AppPreferences> = preferences.values
     fun foods(): Flow<List<FoodEntity>> = dao.observeFoods()
     fun savedMeals(): Flow<List<SavedMealEntity>> = dao.observeSavedMeals()
@@ -115,24 +122,27 @@ class AscendRepository(
             dao.observeWeights(), dao.observeLifetimeXp(), dao.observeTrainingVolume(),
             dao.observeWorkoutHistory(), dao.observeDailySummaries(),
         ) { weights, xp, volume, workouts, summaries -> DashboardStats(weights, xp, volume, workouts, summaries) }
-        return combine(core, stats) { coreState, statsState ->
+        val base = combine(core, stats) { coreState, statsState ->
             val totals = coreState.logs.toTotals()
             val scheduledHabits = coreState.habits.filter { it.scheduledOn(today) }
-        DashboardState(
-            profile = coreState.profile,
-            target = coreState.target,
-            nutrition = totals,
-            waterMl = statsState.summaries.firstOrNull { it.localDate == today.toString() }?.waterMl ?: 0,
-            habits = scheduledHabits,
-            habitCompletions = coreState.completions.filter { it.completed }.map { it.habitId }.toSet(),
-            weights = statsState.weights,
-            level = LevelEngine.fromLifetimeXp(statsState.xp),
-            lifetimeXp = statsState.xp,
-            streak = StreakEngine.calculate(statsState.summaries.filter { it.completionPercent >= 50 }.map { LocalDate.parse(it.localDate) }, today),
-            trainingVolume = statsState.volume ?: 0.0,
-            workoutHistory = statsState.workouts,
-            dailySummaries = statsState.summaries,
-        )
+            DashboardState(
+                profile = coreState.profile,
+                target = coreState.target,
+                nutrition = totals,
+                waterMl = statsState.summaries.firstOrNull { it.localDate == today.toString() }?.waterMl ?: 0,
+                habits = scheduledHabits,
+                habitCompletions = coreState.completions.filter { it.completed }.map { it.habitId }.toSet(),
+                weights = statsState.weights,
+                level = LevelEngine.fromLifetimeXp(statsState.xp),
+                lifetimeXp = statsState.xp,
+                streak = StreakEngine.calculate(statsState.summaries.filter { it.completionPercent >= 50 }.map { LocalDate.parse(it.localDate) }, today),
+                trainingVolume = statsState.volume ?: 0.0,
+                workoutHistory = statsState.workouts,
+                dailySummaries = statsState.summaries,
+            )
+        }
+        return combine(base, dao.observeQuestCompletions(today.toString())) { state, completions ->
+            state.copy(questCompletions = completions.map { it.questId }.toSet())
         }
     }
 
@@ -145,7 +155,7 @@ class AscendRepository(
         require(input.workoutFrequency in 2..6 && input.workoutDays.size == input.workoutFrequency) { "Workout days must match the selected frequency" }
         require(input.futureVision.isNotBlank() && input.coreReason.isNotBlank() && input.minimumPromise.isNotBlank()) { "Complete the mindset calibration" }
         require(input.targetWeightKg in 25.0..400.0) { "Target weight is outside the supported range" }
-        require(targets.calories in 1_000..10_000 && targets.proteinGrams in 0..1_000 && targets.carbohydrateGrams in 0..2_000 && targets.fatGrams in 0..500 && targets.waterMl in 500..10_000) { "Nutrition targets are outside supported ranges" }
+        require(targets.calories in 1_000..10_000 && targets.proteinGrams in 1..1_000 && targets.carbohydrateGrams in 0..2_000 && targets.fatGrams in 0..500 && targets.waterMl in 500..6_000) { "Nutrition targets are outside supported ranges" }
         require(targets.proteinGrams * 4 + targets.carbohydrateGrams * 4 + targets.fatGrams * 9 <= targets.calories * 1.5) { "Macro targets are not plausible for the calorie target" }
         dao.upsertProfile(
             UserProfileEntity(
@@ -185,7 +195,8 @@ class AscendRepository(
     }
 
     suspend fun updateNutritionTargets(calories: Int, protein: Int, carbs: Int, fat: Int, waterMl: Int) {
-        require(calories in 1_000..10_000 && protein in 0..1_000 && carbs in 0..2_000 && fat in 0..500 && waterMl in 500..10_000)
+        require(calories in 1_000..10_000 && protein in 1..1_000 && carbs in 0..2_000 && fat in 0..500 && waterMl in 500..6_000)
+        require(protein * 4 + carbs * 4 + fat * 9 <= calories * 1.5) { "Macro targets are not plausible for the calorie target" }
         val current = dao.observeNutritionTarget().first() ?: return
         dao.upsertNutritionTarget(current.copy(calories = calories, proteinGrams = protein, carbohydrateGrams = carbs, fatGrams = fat, waterMl = waterMl, manuallyEdited = true))
         refreshDailyState(LocalDate.now())
@@ -202,7 +213,18 @@ class AscendRepository(
         }
         if (dao.observeFoods().first().isEmpty()) commonFoods().forEach { dao.upsertFood(it) }
         dao.upsertQuests(defaultQuests(dao.observeProfile().first()?.workoutFrequency ?: 6))
-        dao.upsertAchievements(defaultAchievements())
+        dao.insertAchievementsIfAbsent(defaultAchievements())
+        val interrupted = dao.recentSystemMessages(1).firstOrNull()
+        if (interrupted?.role == "PLAYER") {
+            dao.insertSystemMessage(
+                SystemMessageEntity(
+                    id(),
+                    "SYSTEM_LOCAL",
+                    "The previous response was interrupted. Your message is still in the log; send it again when you are ready.",
+                    now(),
+                ),
+            )
+        }
     }
 
     suspend fun addFood(food: FoodEntity) {
@@ -215,40 +237,149 @@ class AscendRepository(
     suspend fun sendSystemMessage(message: String, tone: SystemTone, date: LocalDate) {
         val clean = message.trim()
         require(clean.isNotEmpty() && clean.length <= 500) { "Message must be between 1 and 500 characters" }
+        val profile = dao.observeProfile().first() ?: error("Complete player setup before using SYSTEM")
+        val target = dao.observeNutritionTarget().first() ?: error("Nutrition targets are unavailable")
         val conversation = dao.recentSystemMessages().sortedBy { it.createdAt }
         val conversationHistory = conversation.filter { it.role == "PLAYER" }.map { it.message }
         dao.insertSystemMessage(SystemMessageEntity(id(), "PLAYER", clean, now()))
-        val profile = dao.observeProfile().first() ?: return
-        val target = dao.observeNutritionTarget().first() ?: return
+        try {
         val totals = dao.observeFoodLogs(date.toString()).first().toTotals()
         val summary = dao.dailySummary(date.toString()) ?: emptySummary(date)
+        val recentStart = date.minusDays(6)
+        val recentSummaries = dao.dailySummariesBetween(recentStart.toString(), date.toString())
         val scheduledDays = profile.workoutDays.split(',').mapNotNull { it.toIntOrNull() }.map { DayOfWeek.of(it) }.toSet()
         val index = CustomPlanEngine.templateIndexFor(date, LocalDate.parse(profile.programStartDate), scheduledDays)
         val workout = dao.templateForIndex(index)?.name ?: "RECOVERY PROTOCOL"
         val tomorrowIndex = CustomPlanEngine.templateIndexFor(date.plusDays(1), LocalDate.parse(profile.programStartDate), scheduledDays)
         val tomorrowWorkout = dao.templateForIndex(tomorrowIndex)?.name ?: "RECOVERY PROTOCOL"
         val systemContext = SystemContext(
-            profile.displayName, Objective.valueOf(profile.objective), target.calories, target.proteinGrams,
-            totals.calories, totals.protein, summary.waterMl, target.waterMl,
-            StreakEngine.calculate(dao.observeDailySummaries().first().filter { it.completionPercent >= 50 }.map { LocalDate.parse(it.localDate) }, date).current,
-            workout, tomorrowWorkout, profile.workoutFrequency,
-            profile.focusAreas.split(',').mapNotNull { runCatching { FocusArea.valueOf(it) }.getOrNull() }.toSet(),
-            profile.injuries.split(',').mapNotNull { runCatching { InjuryArea.valueOf(it) }.getOrNull() }.toSet(),
-            profile.coreReason, profile.futureVision, profile.minimumPromise, conversationHistory,
+            playerName = profile.displayName,
+            objective = Objective.valueOf(profile.objective),
+            calorieTarget = target.calories,
+            proteinTarget = target.proteinGrams,
+            caloriesLogged = totals.calories,
+            proteinLogged = totals.protein,
+            waterLogged = summary.waterMl,
+            waterTarget = target.waterMl,
+            streak = StreakEngine.calculate(dao.observeDailySummaries().first().filter { it.completionPercent >= 50 }.map { LocalDate.parse(it.localDate) }, date).current,
+            todayWorkout = workout,
+            tomorrowWorkout = tomorrowWorkout,
+            workoutFrequency = profile.workoutFrequency,
+            focusAreas = profile.focusAreas.split(',').mapNotNull { runCatching { FocusArea.valueOf(it) }.getOrNull() }.toSet(),
+            injuries = profile.injuries.split(',').mapNotNull { runCatching { InjuryArea.valueOf(it) }.getOrNull() }.toSet(),
+            coreReason = profile.coreReason,
+            futureVision = profile.futureVision,
+            minimumPromise = profile.minimumPromise,
+            activeDaysLast7 = recentSummaries.count { it.completionPercent > 0 || it.calories > 0 || it.waterMl > 0 },
+            averageCompletionLast7 = (recentSummaries.sumOf { it.completionPercent } / 7.0).toInt(),
+            workoutsLast7 = dao.completedTrainingCountBetween(recentStart.toString(), date.toString()),
+            recentPlayerMessages = conversationHistory,
         )
         val localResponse = SystemEngine.respond(
             clean,
             systemContext,
             tone,
         )
-        val response = if (SystemEngine.requiresImmediateSafetyResponse(clean)) localResponse else {
-            systemAi.respond(clean, systemContext, tone, conversation).getOrDefault(localResponse)
+        val safetyOverride = SystemEngine.requiresImmediateSafetyResponse(clean)
+        val aiResponse = if (!safetyOverride && systemAi.isConfigured) {
+            withTimeoutOrNull(30_000) { systemAi.respond(clean, systemContext, tone, conversation) }
+        } else {
+            null
+        }
+        val aiReply = aiResponse?.getOrNull()
+        val systemReply = aiReply
+            ?: SystemReply(localResponse, SystemCommandParser.parse(clean) ?: SystemAction(SystemActionType.NONE))
+        // Local parsing is the authorization boundary. Model output alone can never mutate player data.
+        val authorizedAction = if (safetyOverride) null else SystemCommandParser.parse(clean)
+        val actionReceipt = if (authorizedAction == null) null else {
+            runCatching { executeSystemAction(authorizedAction) }
+                .getOrElse { "ACTION REJECTED // ${it.message ?: "INVALID PARAMETERS"}" }
+        }
+        val response = listOfNotNull(systemReply.message, actionReceipt).joinToString("\n\n")
+        val responseRole = when {
+            safetyOverride -> "SYSTEM_SAFETY"
+            aiResponse?.isSuccess == true -> "SYSTEM_AI"
+            else -> "SYSTEM_LOCAL"
         }
         delay(420)
-        dao.insertSystemMessage(SystemMessageEntity(id(), "SYSTEM", response, now() + 1))
+        dao.insertSystemMessage(SystemMessageEntity(id(), responseRole, response, now() + 1))
+        } catch (failure: Throwable) {
+            if (failure is CancellationException) throw failure
+            dao.insertSystemMessage(
+                SystemMessageEntity(
+                    id(),
+                    "SYSTEM_LOCAL",
+                    "Signal interrupted. I could not finish that response. Your data was not changed; try the request again.",
+                    now() + 1,
+                ),
+            )
+        }
     }
 
     suspend fun clearSystemMessages() = dao.clearSystemMessages()
+
+    private suspend fun executeSystemAction(action: SystemAction): String = when (action.type) {
+        SystemActionType.CREATE_HABIT -> {
+            if (dao.observeHabits().first().any { it.name.equals(action.name, ignoreCase = true) }) {
+                "ACTION SKIPPED // HABIT ALREADY EXISTS: ${action.name.uppercase()}"
+            } else {
+                val type = when (action.unit.lowercase()) {
+                    "done" -> HabitType.CHECKBOX
+                    "min", "minutes", "hours" -> HabitType.DURATION
+                    else -> HabitType.NUMBER
+                }
+                createHabit(action.name, type, action.target, action.unit, action.difficulty, action.frequency)
+                "ACTION COMPLETE // HABIT ADDED: ${action.name.uppercase()} • ${action.target.cleanNumber()} ${action.unit.uppercase()} • ${action.frequency.readable()}"
+            }
+        }
+        SystemActionType.CREATE_QUEST -> {
+            if (dao.observeQuests().first().any { it.title.equals(action.name, ignoreCase = true) }) {
+                "ACTION SKIPPED // QUEST ALREADY EXISTS: ${action.name.uppercase()}"
+            } else {
+                createCustomQuest(action.name, action.category, action.rewardXp, action.target, action.unit, action.frequency)
+                "ACTION COMPLETE // CUSTOM QUEST ADDED: ${action.name.uppercase()} • ${action.target.cleanNumber()} ${action.unit.uppercase()} • +${action.rewardXp.coerceIn(10, 50)} XP"
+            }
+        }
+        SystemActionType.NONE -> error("No action requested")
+    }
+
+    suspend fun createCustomQuest(
+        name: String,
+        category: QuestCategory,
+        rewardXp: Int,
+        target: Double = 1.0,
+        unit: String = "done",
+        frequency: HabitFrequency = HabitFrequency.EVERY_DAY,
+    ) {
+        require(name.trim().length in 3..80) { "Quest name must contain 3–80 characters" }
+        require(target in .1..100_000.0) { "Quest target is outside the supported range" }
+        val cadence = frequency.readable().lowercase()
+        dao.upsertQuests(
+            listOf(
+                QuestEntity(
+                    id = "custom_${id()}",
+                    title = name.trim().uppercase(),
+                    description = "${target.cleanNumber()} ${unit.trim().ifBlank { "done" }} • $cadence • tap when complete",
+                    type = QuestType.DAILY.name,
+                    category = category.name,
+                    target = target,
+                    rewardXp = rewardXp.coerceIn(10, 50),
+                ),
+            ),
+        )
+    }
+
+    suspend fun setCustomQuestCompletion(quest: QuestEntity, completed: Boolean, date: LocalDate) {
+        require(quest.id.startsWith("custom_") && quest.type == QuestType.DAILY.name) { "Only custom daily quests can be toggled manually" }
+        if (completed) {
+            dao.insertQuestCompletion(QuestCompletionEntity(id(), quest.id, date.toString(), now()))
+            awardXp(XpSourceType.QUEST, quest.id, date, quest.rewardXp.coerceIn(10, 50), quest.title)
+        } else {
+            dao.deleteQuestCompletion(quest.id, date.toString())
+            dao.deleteXp(XpSourceType.QUEST.name, quest.id, date.toString())
+        }
+        refreshDailyState(date)
+    }
 
     suspend fun createFoodAndLog(
         name: String, servingQuantity: Double, unit: String, calories: Double,
@@ -305,10 +436,12 @@ class AscendRepository(
     }
 
     suspend fun addWater(amountMl: Int, date: LocalDate) {
-        require(amountMl in 1..5_000)
-        val old = dao.dailySummary(date.toString()) ?: emptySummary(date)
-        dao.upsertDailySummary(old.copy(waterMl = (old.waterMl + amountMl).coerceAtMost(20_000)))
-        refreshDailyState(date)
+        require(amountMl in 1..2_000)
+        dailySummaryMutex.withLock {
+            val old = dao.dailySummary(date.toString()) ?: emptySummary(date)
+            dao.upsertDailySummary(old.copy(waterMl = (old.waterMl + amountMl).coerceAtMost(10_000)))
+            refreshDailyStateLocked(date)
+        }
     }
 
     suspend fun addWeight(weightKg: Double, date: LocalDate, note: String) {
@@ -324,7 +457,11 @@ class AscendRepository(
         dao.upsertHabit(
             HabitEntity(
                 id(), name.trim(), type.name, target, unit.trim(), difficulty.name, frequency.name,
-                weekdays = if (frequency == HabitFrequency.WEEKDAYS) "1,2,3,4,5" else "",
+                weekdays = when (frequency) {
+                    HabitFrequency.WEEKDAYS -> "1,2,3,4,5"
+                    HabitFrequency.THREE_TIMES_WEEKLY -> "1,3,5"
+                    else -> ""
+                },
                 timesPerWeek = if (frequency == HabitFrequency.THREE_TIMES_WEEKLY) 3 else 7,
                 createdAt = now(),
             ),
@@ -332,17 +469,19 @@ class AscendRepository(
     }
 
     suspend fun setHabitCompletion(habit: HabitEntity, completed: Boolean, value: Double, date: LocalDate) {
-        if (completed) {
-            dao.upsertHabitCompletion(HabitCompletionEntity(id(), habit.id, date.toString(), value.coerceAtLeast(habit.target), true, now()))
-            val used = dao.habitXpForDate(date.toString())
-            val requested = HabitDifficulty.valueOf(habit.difficulty).xp
-            val award = minOf(requested, (AscendConfig.MAX_HABIT_XP_PER_DAY - used).coerceAtLeast(0))
-            if (award > 0) awardXp(XpSourceType.HABIT, habit.id, date, award, habit.name)
-        } else {
-            dao.deleteHabitCompletion(habit.id, date.toString())
-            dao.deleteXp(XpSourceType.HABIT.name, habit.id, date.toString())
+        dailySummaryMutex.withLock {
+            if (completed) {
+                dao.upsertHabitCompletion(HabitCompletionEntity(id(), habit.id, date.toString(), value.coerceAtLeast(habit.target), true, now()))
+                val used = dao.habitXpForDate(date.toString())
+                val requested = HabitDifficulty.valueOf(habit.difficulty).xp
+                val award = minOf(requested, (AscendConfig.MAX_HABIT_XP_PER_DAY - used).coerceAtLeast(0))
+                if (award > 0) awardXp(XpSourceType.HABIT, habit.id, date, award, habit.name)
+            } else {
+                dao.deleteHabitCompletion(habit.id, date.toString())
+                dao.deleteXp(XpSourceType.HABIT.name, habit.id, date.toString())
+            }
+            refreshDailyStateLocked(date)
         }
-        refreshDailyState(date)
     }
 
     suspend fun startTodayWorkout(date: LocalDate): WorkoutLaunch {
@@ -374,6 +513,7 @@ class AscendRepository(
 
     suspend fun updateSet(set: WorkoutSetEntity, weightKg: Double, reps: Int, completed: Boolean): Boolean {
         require(weightKg in 0.0..1_500.0 && reps in 0..1_000)
+        require(!completed || reps > 0) { "Enter at least one rep before completing a set" }
         var isPr = false
         if (completed && !set.completed && weightKg > 0 && reps > 0) {
             val history = dao.completedSets(set.exerciseId).map { PerformanceSet(it.weightKg, it.reps) }
@@ -427,7 +567,11 @@ class AscendRepository(
 
     suspend fun updateNotification(category: String, enabled: Boolean) = preferences.setNotification(category, enabled)
 
-    private suspend fun refreshDailyState(date: LocalDate) {
+    private suspend fun refreshDailyState(date: LocalDate) = dailySummaryMutex.withLock {
+        refreshDailyStateLocked(date)
+    }
+
+    private suspend fun refreshDailyStateLocked(date: LocalDate) {
         val target = dao.observeNutritionTarget().first() ?: return
         val totals = dao.observeFoodLogs(date.toString()).first().toTotals()
         val habits = dao.observeHabits().first().filter { it.scheduledOn(date) }
@@ -505,16 +649,21 @@ class AscendRepository(
 
     private suspend fun evaluateWeeklyQuests(date: LocalDate) {
         val start = date.with(java.time.DayOfWeek.MONDAY)
-        val end = start.plusDays(6)
+        val end = minOf(date, start.plusDays(6))
         val summaries = dao.dailySummariesBetween(start.toString(), end.toString())
         val target = dao.observeNutritionTarget().first() ?: return
-        val workoutCount = dao.completedTrainingCountBetween(start.toString(), end.toString())
         val plannedWorkouts = dao.observeProfile().first()?.workoutFrequency ?: 6
+        val protocolCount = dao.completedScheduledProtocolCountBetween(
+            start.toString(),
+            end.toString(),
+            restTemplateId = "template_$plannedWorkouts",
+        )
         val calorieDays = summaries.count { it.calories.toDouble() / target.calories in .9..1.1 }
-        val adherence = summaries.map { it.completionPercent / 100.0 }.average().takeIf { !it.isNaN() } ?: 0.0
-        syncObjectiveXp(XpSourceType.QUEST, "weekly_iron", start, workoutCount >= plannedWorkouts, 400, "Scheduled training week")
+        val elapsedDays = java.time.temporal.ChronoUnit.DAYS.between(start, end).toInt() + 1
+        val adherence = summaries.sumOf { it.completionPercent }.toDouble() / (elapsedDays * 100.0)
+        syncObjectiveXp(XpSourceType.QUEST, "weekly_iron", start, protocolCount >= plannedWorkouts, 400, "Scheduled protocol week")
         syncObjectiveXp(XpSourceType.QUEST, "weekly_nutrition", start, calorieDays >= 5, 250, "Nutrition Control")
-        syncObjectiveXp(XpSourceType.QUEST, "weekly_consistency", start, summaries.size >= 5 && adherence >= .8, 250, "Weekly Consistency")
+        syncObjectiveXp(XpSourceType.QUEST, "weekly_consistency", start, elapsedDays >= 5 && adherence >= .8, 250, "Weekly Consistency")
     }
 
     private suspend fun seedWorkoutProgram() {
@@ -535,7 +684,7 @@ class AscendRepository(
         seedPlan(
             CustomPlanEngine.generate(
                 input.workoutFrequency, input.workoutDays, input.focusAreas,
-                input.injuries, input.equipment, input.experience,
+                input.injuries, input.equipment, input.experience, input.objective,
             ),
             input.equipment,
         )
@@ -634,9 +783,9 @@ class AscendRepository(
         QuestEntity("daily_protein", "PROTEIN QUEST", "Reach your configured protein target", QuestType.DAILY.name, QuestCategory.NUTRITION.name, 1.0, 40),
         QuestEntity("daily_water", "HYDRATION QUEST", "Reach your hydration target", QuestType.DAILY.name, QuestCategory.HYDRATION.name, 1.0, 30),
         QuestEntity("daily_discipline", "DISCIPLINE QUEST", "Complete 80% of planned habits", QuestType.DAILY.name, QuestCategory.DISCIPLINE.name, .8, 50),
-        QuestEntity("weekly_iron", "IRON WEEK", "Complete all $plannedWorkouts scheduled training sessions", QuestType.WEEKLY.name, QuestCategory.TRAINING.name, plannedWorkouts.toDouble(), 400),
+        QuestEntity("weekly_iron", "PROTOCOL WEEK", "Complete all $plannedWorkouts scheduled training or clearance sessions", QuestType.WEEKLY.name, QuestCategory.TRAINING.name, plannedWorkouts.toDouble(), 400),
         QuestEntity("weekly_nutrition", "NUTRITION CONTROL", "Hit calorie goal on five days", QuestType.WEEKLY.name, QuestCategory.NUTRITION.name, 5.0, 250),
-        QuestEntity("weekly_consistency", "CONSISTENCY", "Complete at least 80% of scheduled habits", QuestType.WEEKLY.name, QuestCategory.CONSISTENCY.name, .8, 250),
+        QuestEntity("weekly_consistency", "CONSISTENCY", "Average at least 80% across daily core objectives", QuestType.WEEKLY.name, QuestCategory.CONSISTENCY.name, .8, 250),
     )
 
     private fun defaultAchievements() = listOf(
@@ -675,7 +824,15 @@ class AscendRepository(
     private fun slug(value: String) = value.lowercase().replace(Regex("[^a-z0-9]+"), "_").trim('_')
     private fun HabitEntity.scheduledOn(date: LocalDate): Boolean = when (frequency) {
         HabitFrequency.WEEKDAYS.name -> date.dayOfWeek.value in 1..5
-        HabitFrequency.CUSTOM.name -> weekdays.split(',').any { it.toIntOrNull() == date.dayOfWeek.value }
+        HabitFrequency.THREE_TIMES_WEEKLY.name, HabitFrequency.CUSTOM.name -> weekdays.split(',').any { it.toIntOrNull() == date.dayOfWeek.value }
         else -> true
+    }
+
+    private fun Double.cleanNumber(): String = if (this % 1.0 == 0.0) toInt().toString() else "%.1f".format(this)
+    private fun HabitFrequency.readable(): String = when (this) {
+        HabitFrequency.EVERY_DAY -> "DAILY"
+        HabitFrequency.WEEKDAYS -> "WEEKDAYS"
+        HabitFrequency.THREE_TIMES_WEEKLY -> "MON/WED/FRI"
+        HabitFrequency.CUSTOM -> "CUSTOM"
     }
 }

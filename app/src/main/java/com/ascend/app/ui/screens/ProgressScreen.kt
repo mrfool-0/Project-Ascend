@@ -8,10 +8,13 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
@@ -19,42 +22,55 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.ascend.app.DashboardState
 import com.ascend.app.core.database.DailySummaryEntity
+import com.ascend.app.core.database.WorkoutTemplateEntity
 import com.ascend.app.ui.components.*
 import com.ascend.app.ui.theme.*
 import java.time.LocalDate
+import java.time.temporal.ChronoUnit
 import kotlin.math.min
 import kotlin.math.roundToInt
 
 private enum class ProgressTab { OVERVIEW, BODY, TRAINING, NUTRITION, CONSISTENCY }
 
 @Composable
-fun ProgressScreen(state: DashboardState, onLogWeight: (Double, String) -> Unit) {
-    var tab by remember { mutableStateOf(ProgressTab.OVERVIEW) }
+fun ProgressScreen(state: DashboardState, templates: List<WorkoutTemplateEntity>, onBack: () -> Unit, onLogWeight: (Double, String) -> Unit) {
+    var tab by rememberSaveable { mutableStateOf(ProgressTab.OVERVIEW) }
     var logWeight by remember { mutableStateOf(false) }
     LazyColumn(
-        Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 20.dp, bottom = 110.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp),
+        Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 28.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column { Text("PROGRESS ARCHIVE", style = MaterialTheme.typography.headlineMedium); Text("DATA REVEALS THE PATH", style = MaterialTheme.typography.labelMedium, color = EnergyCyan) }
-                Spacer(Modifier.weight(1f))
-                FilledIconButton(onClick = { logWeight = true }, colors = IconButtonDefaults.filledIconButtonColors(containerColor = EnergyViolet)) { Icon(Icons.Outlined.Add, "Log body weight") }
-            }
+            ScreenHeader(
+                title = "Progress",
+                subtitle = "Patterns over perfection",
+                leading = { FilledTonalIconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
+                trailing = { FilledIconButton(onClick = { logWeight = true }) { Icon(Icons.Outlined.Add, "Log body weight") } },
+            )
         }
         item {
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                ProgressTab.entries.forEach { value -> FilterChip(tab == value, { tab = value }, { Text(value.name, style = MaterialTheme.typography.labelMedium) }, shape = AngularShape) }
+            SingleChoiceSegmentedButtonRow(Modifier.horizontalScroll(rememberScrollState()).selectableGroup()) {
+                ProgressTab.entries.forEachIndexed { index, value ->
+                    SegmentedButton(
+                        selected = tab == value,
+                        onClick = { tab = value },
+                        shape = SegmentedButtonDefaults.itemShape(index, ProgressTab.entries.size),
+                        icon = {},
+                        label = { Text(value.name.lowercase().replaceFirstChar(Char::uppercase), style = MaterialTheme.typography.labelSmall) },
+                    )
+                }
             }
         }
         when (tab) {
-            ProgressTab.OVERVIEW -> overviewItems(state)
+            ProgressTab.OVERVIEW -> overviewItems(state, templates)
             ProgressTab.BODY -> bodyItems(state) { logWeight = true }
-            ProgressTab.TRAINING -> trainingItems(state)
+            ProgressTab.TRAINING -> trainingItems(state, templates)
             ProgressTab.NUTRITION -> nutritionItems(state)
             ProgressTab.CONSISTENCY -> consistencyItems(state)
         }
@@ -62,7 +78,7 @@ fun ProgressScreen(state: DashboardState, onLogWeight: (Double, String) -> Unit)
     if (logWeight) WeightDialog({ logWeight = false }) { value, note -> onLogWeight(value, note); logWeight = false }
 }
 
-private fun androidx.compose.foundation.lazy.LazyListScope.overviewItems(state: DashboardState) {
+private fun androidx.compose.foundation.lazy.LazyListScope.overviewItems(state: DashboardState, templates: List<WorkoutTemplateEntity>) {
     item {
         AscendCard(Modifier.fillMaxWidth(), highlighted = true) {
             Row {
@@ -78,7 +94,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.overviewItems(state: 
         AscendCard(Modifier.fillMaxWidth()) {
             MetricGrid(
                 "CURRENT STREAK" to "${state.streak.current} DAYS", "LONGEST" to "${state.streak.longest} DAYS",
-                "WORKOUTS" to state.workoutHistory.count { it.completedAt != null }.toString(),
+                "WORKOUTS" to completedTraining(state, templates).size.toString(),
                 "TRAINING VOLUME" to "${(state.trainingVolume / 1_000).roundToInt()}K KG",
                 "WEIGHT CHANGE" to weightChange(state),
                 "AVG ADHERENCE" to "${averageAdherence(state)}%",
@@ -86,7 +102,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.overviewItems(state: 
         }
     }
     item { SectionHeader("ASCEND scores", "GAME METRICS") }
-    item { AscendScores(state) }
+    item { AscendScores(state, templates) }
     item { SectionHeader("Consistency matrix", "8 WEEKS") }
     item { Heatmap(state) }
 }
@@ -107,7 +123,10 @@ private fun androidx.compose.foundation.lazy.LazyListScope.bodyItems(state: Dash
         }
         item {
             AscendCard(Modifier.fillMaxWidth()) {
-                val recent = state.weights.filter { LocalDate.parse(it.localDate) >= LocalDate.now().minusDays(6) }.map { it.weightKg }
+                val today = LocalDate.now()
+                val recent = state.weights.filter {
+                    runCatching { LocalDate.parse(it.localDate) }.getOrNull()?.let { date -> date in today.minusDays(6)..today } == true
+                }.map { it.weightKg }
                 MetricGrid(
                     "STARTING" to "%.1f KG".format(state.weights.first().weightKg),
                     "TOTAL CHANGE" to weightChange(state),
@@ -119,20 +138,42 @@ private fun androidx.compose.foundation.lazy.LazyListScope.bodyItems(state: Dash
     }
 }
 
-private fun androidx.compose.foundation.lazy.LazyListScope.trainingItems(state: DashboardState) {
-    val complete = state.workoutHistory.filter { it.completedAt != null }
-    val week = complete.count { LocalDate.parse(it.localDate) >= LocalDate.now().minusDays(6) }
+private fun androidx.compose.foundation.lazy.LazyListScope.trainingItems(state: DashboardState, templates: List<WorkoutTemplateEntity>) {
+    val complete = completedTraining(state, templates)
+    val templateById = templates.associateBy { it.id }
+    val today = LocalDate.now()
+    val datedSessions = complete.mapNotNull { session ->
+        runCatching { LocalDate.parse(session.localDate) }.getOrNull()?.let { date -> session to date }
+    }
+    val week = datedSessions.count { (_, date) -> date in today.minusDays(6)..today }
+    val elapsedWeeks = datedSessions.minOfOrNull { (_, date) -> date }
+        ?.let { (ChronoUnit.DAYS.between(it, today).coerceAtLeast(0) + 1) / 7.0 }
+        ?.coerceAtLeast(1.0) ?: 1.0
     item { SectionHeader("Training analytics", "RECORDED") }
     item {
         AscendCard(Modifier.fillMaxWidth(), highlighted = true) {
-            MetricGrid("WORKOUTS / 7D" to week.toString(), "TOTAL WORKOUTS" to complete.size.toString(), "VOLUME" to "${state.trainingVolume.roundToInt()} KG", "AVG / WEEK" to "%.1f".format(complete.size / ((state.dailySummaries.size / 7.0).coerceAtLeast(1.0))))
+            MetricGrid("WORKOUTS / 7D" to week.toString(), "TOTAL WORKOUTS" to complete.size.toString(), "VOLUME" to "${state.trainingVolume.roundToInt()} KG", "AVG / WEEK" to "%.1f".format(complete.size / elapsedWeeks))
         }
     }
     item { SectionHeader("Recent sessions") }
     state.workoutHistory.take(12).forEach { session ->
         item(key = session.id) {
+            val template = templateById[session.templateId]
             AscendCard(Modifier.fillMaxWidth(), accent = if (session.completedAt != null) EnergyEmerald else EnergyAmber) {
-                Row { Column(Modifier.weight(1f)) { Text(session.templateId.removePrefix("template_").let { "TRAINING PROTOCOL ${it.toIntOrNull()?.plus(1) ?: ""}" }, style = MaterialTheme.typography.titleMedium); Text(session.localDate, color = TextSecondary) }; Text(if (session.completedAt != null) "COMPLETE" else "INCOMPLETE", color = if (session.completedAt != null) EnergyEmerald else EnergyAmber, style = MaterialTheme.typography.labelMedium) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(template?.name?.lowercase()?.replaceFirstChar(Char::uppercase) ?: "Training protocol", style = MaterialTheme.typography.titleMedium)
+                        Text(session.localDate, color = TextSecondary)
+                    }
+                    StatusPill(
+                        when {
+                            session.completedAt == null -> "Incomplete"
+                            template?.isRecovery == true -> "Recovery"
+                            else -> "Complete"
+                        },
+                        if (session.completedAt == null) EnergyAmber else if (template?.isRecovery == true) EnergyCyan else EnergyEmerald,
+                    )
+                }
             }
         }
     }
@@ -168,8 +209,8 @@ private fun androidx.compose.foundation.lazy.LazyListScope.consistencyItems(stat
 }
 
 @Composable
-private fun AscendScores(state: DashboardState) {
-    val workoutRate = (state.workoutHistory.count { it.completedAt != null } * 4).coerceAtMost(100)
+private fun AscendScores(state: DashboardState, templates: List<WorkoutTemplateEntity>) {
+    val workoutRate = (completedTraining(state, templates).size * 4).coerceAtMost(100)
     val nutrition = averageAdherence(state)
     val discipline = if (state.habits.isEmpty()) 0 else (state.habitCompletions.size * 100 / state.habits.size)
     val consistency = (state.streak.current * 4).coerceAtMost(100)
@@ -187,10 +228,16 @@ private fun AscendScores(state: DashboardState) {
 private fun Heatmap(state: DashboardState) {
     val byDate = state.dailySummaries.associateBy { it.localDate }
     val days = (55 downTo 0).map { LocalDate.now().minusDays(it.toLong()) }
+    val visibleSummaries = days.mapNotNull { byDate[it.toString()] }
+    val averageCompletion = visibleSummaries.map { it.completionPercent }.average().takeIf { !it.isNaN() }?.roundToInt() ?: 0
     var selected by remember { mutableStateOf<DailySummaryEntity?>(null) }
     AscendCard(Modifier.fillMaxWidth()) {
         Canvas(
-            Modifier.fillMaxWidth().height(112.dp).pointerInput(days, byDate) {
+            Modifier.fillMaxWidth().height(112.dp)
+                .semantics {
+                    contentDescription = "Eight week consistency chart. ${visibleSummaries.size} days logged, $averageCompletion percent average completion."
+                }
+                .pointerInput(days, byDate) {
                 detectTapGestures { offset ->
                     val gap = 5.dp.toPx()
                     val cell = min((size.width - gap * 7) / 8, (size.height - gap * 6) / 7)
@@ -222,22 +269,37 @@ private fun Heatmap(state: DashboardState) {
 
 @Composable
 private fun WeightChart(values: List<Double>, modifier: Modifier) {
-    Canvas(modifier) {
-        if (values.size < 2) return@Canvas
+    val description = if (values.isEmpty()) {
+        "No body weight history"
+    } else {
+        "Body weight trend with ${values.size} entries, from ${"%.1f".format(values.first())} to ${"%.1f".format(values.last())} kilograms"
+    }
+    Canvas(modifier.semantics { contentDescription = description }) {
+        if (values.isEmpty()) return@Canvas
+        if (values.size == 1) {
+            drawCircle(EnergyViolet, 3.dp.toPx(), center)
+            return@Canvas
+        }
         val low = values.min() - .5; val high = values.max() + .5; val range = high - low
-        repeat(4) { y -> drawLine(Hairline, Offset(0f, y * size.height / 3), Offset(size.width, y * size.height / 3), 1f) }
+        repeat(4) { y -> drawLine(Hairline, Offset(0f, y * size.height / 3), Offset(size.width, y * size.height / 3), 1.dp.toPx()) }
         val points = values.mapIndexed { i, value -> Offset(i * size.width / (values.size - 1), size.height - ((value - low) / range * size.height).toFloat()) }
         val path = Path().apply { moveTo(points.first().x, points.first().y); points.drop(1).forEach { lineTo(it.x, it.y) } }
-        drawPath(path, EnergyCyan, style = Stroke(4f))
-        points.forEach { drawCircle(EnergyViolet, 5f, it) }
+        drawPath(path, EnergyCyan, style = Stroke(2.dp.toPx()))
+        points.forEach { drawCircle(EnergyViolet, 2.5.dp.toPx(), it) }
     }
 }
 
 @Composable
 private fun BarChart(values: List<Int>, target: Int, modifier: Modifier) {
     AscendCard(Modifier.fillMaxWidth()) {
-        Canvas(modifier) {
-            if (values.isEmpty()) return@Canvas
+        if (values.isEmpty()) {
+            Text("No nutrition history yet.", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
+            return@AscendCard
+        }
+        val average = values.average().roundToInt()
+        Canvas(modifier.semantics {
+            contentDescription = "Energy intake chart with ${values.size} days, averaging $average kilocalories against a $target kilocalorie target."
+        }) {
             val max = maxOf(values.maxOrNull() ?: 1, target) * 1.2f
             val gap = 3.dp.toPx(); val width = (size.width - gap * (values.size - 1)) / values.size
             values.forEachIndexed { index, value ->
@@ -245,7 +307,7 @@ private fun BarChart(values: List<Int>, target: Int, modifier: Modifier) {
                 drawRect(if (value.toDouble() / target in .9..1.1) EnergyEmerald else EnergyViolet, Offset(index * (width + gap), size.height - h), Size(width, h))
             }
             val targetY = size.height - target / max * size.height
-            drawLine(EnergyCyan.copy(.7f), Offset(0f, targetY), Offset(size.width, targetY), 2f)
+            drawLine(EnergyCyan.copy(.7f), Offset(0f, targetY), Offset(size.width, targetY), 1.dp.toPx())
         }
     }
 }
@@ -257,18 +319,20 @@ private fun BigMetric(label: String, value: String, color: androidx.compose.ui.g
 
 @Composable
 private fun MetricGrid(vararg metrics: Pair<String, String>) {
-    metrics.toList().chunked(2).forEachIndexed { rowIndex, row ->
+    val rows = metrics.toList().chunked(2)
+    rows.forEachIndexed { rowIndex, row ->
         Row(Modifier.fillMaxWidth()) {
             row.forEach { (label, value) -> Column(Modifier.weight(1f).padding(vertical = 8.dp)) { Text(label, style = MaterialTheme.typography.labelMedium, color = TextSecondary); Text(value, style = MaterialTheme.typography.titleMedium) } }
             if (row.size == 1) Spacer(Modifier.weight(1f))
         }
-        if (rowIndex < metrics.size / 2) HorizontalDivider(color = Hairline)
+        if (rowIndex < rows.lastIndex) HorizontalDivider(color = Hairline)
     }
 }
 
 @Composable
 private fun WeightDialog(onDismiss: () -> Unit, onSave: (Double, String) -> Unit) {
     var value by remember { mutableStateOf("") }; var note by remember { mutableStateOf("") }
+    val validWeight = value.toDoubleOrNull()?.takeIf { it in 25.0..400.0 }
     Dialog(onDismissRequest = onDismiss) {
         Surface(shape = AngularShape, color = DeepSurface) {
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -276,13 +340,18 @@ private fun WeightDialog(onDismiss: () -> Unit, onSave: (Double, String) -> Unit
                 AscendTextField(value, { value = it }, "WEIGHT KG", true)
                 AscendTextField(note, { note = it }, "OPTIONAL NOTE")
                 Text("Daily fluctuations are normal. ASCEND emphasizes trends over single readings.", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
-                SystemButton("RECORD +15 XP", { value.toDoubleOrNull()?.takeIf { it in 25.0..400.0 }?.let { onSave(it, note) } }, Modifier.fillMaxWidth())
+                SystemButton("Record +15 XP", { validWeight?.let { onSave(it, note) } }, Modifier.fillMaxWidth(), enabled = validWeight != null)
+                TextButton(onClick = onDismiss, Modifier.align(Alignment.End)) { Text("Cancel") }
             }
         }
     }
 }
 
 private fun weightChange(state: DashboardState): String = if (state.weights.size < 2) "—" else "%+.1f KG".format(state.weights.last().weightKg - state.weights.first().weightKg)
+private fun completedTraining(state: DashboardState, templates: List<WorkoutTemplateEntity>): List<com.ascend.app.core.database.WorkoutSessionEntity> {
+    val recoveryIds = templates.filter { it.isRecovery }.mapTo(mutableSetOf()) { it.id }
+    return state.workoutHistory.filter { it.completedAt != null && it.templateId !in recoveryIds }
+}
 private fun averageAdherence(state: DashboardState): Int {
     val target = state.target?.calories ?: return 0
     val active = state.dailySummaries.filter { it.calories > 0 }.takeLast(30)

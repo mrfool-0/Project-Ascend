@@ -1,0 +1,13 @@
+ASCEND THIRD-PARTY NOTICES
+
+AndroidX and Jetpack Compose — Copyright The Android Open Source Project contributors — Apache License 2.0
+Kotlin and kotlinx.coroutines — Copyright JetBrains s.r.o. and Kotlin contributors — Apache License 2.0
+Coil — Copyright Coil Contributors — Apache License 2.0 — https://github.com/coil-kt/coil
+Firebase Android SDK open-source components — Copyright Google LLC — Apache License 2.0 — https://github.com/firebase/firebase-android-sdk
+
+Google Play services, Google Identity libraries, Firebase hosted services, and related APIs are additionally governed by their applicable Google terms of service.
+
+Manrope — Copyright 2018 The Manrope Project Authors — SIL Open Font License 1.1 — https://github.com/sharanda/manrope
+JetBrains Mono — Copyright 2020 The JetBrains Mono Project Authors — SIL Open Font License 1.1 — https://github.com/JetBrains/JetBrainsMono
+
+Complete Manrope and JetBrains Mono license texts are included beside this notice.

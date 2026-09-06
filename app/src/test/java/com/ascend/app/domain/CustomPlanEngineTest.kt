@@ -31,4 +31,92 @@ class CustomPlanEngineTest {
         assertTrue(names.none { it.contains("Squat") || it.contains("Leg Press") || it.contains("Lunge") })
         assertTrue(plan.safetyNotes.isNotEmpty())
     }
+
+    @Test fun `beginner plan rotates every selected focus into the program`() {
+        val days = setOf(DayOfWeek.MONDAY, DayOfWeek.WEDNESDAY, DayOfWeek.FRIDAY)
+        val plan = CustomPlanEngine.generate(
+            3, days, setOf(FocusArea.CHEST, FocusArea.BACK, FocusArea.CORE),
+            setOf(InjuryArea.NONE), Equipment.BODYWEIGHT, Experience.BEGINNER,
+        )
+        val names = plan.workouts.filterNot { it.recovery }.flatMap { it.exercises }.map { it.name }
+        assertTrue("Wide Push-up" in names)
+        assertTrue("Superman Row" in names)
+        assertTrue("Side Plank" in names)
+        assertTrue(plan.workouts.filterNot { it.recovery }.all { it.exercises.size <= 5 })
+    }
+
+    @Test fun `home gym plan excludes commercial gym only movements`() {
+        val days = DayOfWeek.entries.take(6).toSet()
+        val plan = CustomPlanEngine.generate(
+            frequency = 6,
+            workoutDays = days,
+            focusAreas = setOf(
+                FocusArea.CHEST,
+                FocusArea.BACK,
+                FocusArea.SHOULDERS,
+                FocusArea.ARMS,
+                FocusArea.GLUTES,
+                FocusArea.LEGS,
+            ),
+            injuries = setOf(InjuryArea.NONE),
+            equipment = Equipment.HOME_GYM,
+            experience = Experience.ADVANCED,
+        )
+
+        val exerciseNames = plan.workouts.filterNot { it.recovery }.flatMap { it.exercises }.map { it.name }
+        val commercialGymOnlyMarkers = listOf("Barbell", "Cable", "Machine", "Lat Pulldown", "Leg Press")
+
+        assertTrue(exerciseNames.isNotEmpty())
+        assertTrue(exerciseNames.any { "Dumbbell" in it || "Goblet" in it })
+        assertTrue(exerciseNames.none { name -> commercialGymOnlyMarkers.any(name::contains) })
+    }
+
+    @Test fun `cardiovascular limitation produces recovery only plan`() {
+        val days = setOf(DayOfWeek.MONDAY, DayOfWeek.WEDNESDAY, DayOfWeek.FRIDAY)
+        val plan = CustomPlanEngine.generate(
+            frequency = 3,
+            workoutDays = days,
+            focusAreas = setOf(FocusArea.ENDURANCE),
+            injuries = setOf(InjuryArea.CARDIOVASCULAR),
+            equipment = Equipment.FULL_GYM,
+            experience = Experience.ADVANCED,
+        )
+
+        assertEquals(4, plan.workouts.size)
+        assertTrue(plan.workouts.all { it.recovery })
+        assertTrue(plan.workouts.all { it.exercises.isEmpty() })
+        assertTrue(plan.safetyNotes.any { "Medical clearance" in it })
+    }
+
+    @Test fun `build consistency reduces weekly training volume`() {
+        val days = setOf(DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.THURSDAY, DayOfWeek.FRIDAY)
+        val generalPlan = CustomPlanEngine.generate(
+            frequency = 4,
+            workoutDays = days,
+            focusAreas = setOf(FocusArea.CHEST),
+            injuries = setOf(InjuryArea.NONE),
+            equipment = Equipment.FULL_GYM,
+            experience = Experience.ADVANCED,
+            objective = Objective.GENERAL_HEALTH,
+        )
+        val consistencyPlan = CustomPlanEngine.generate(
+            frequency = 4,
+            workoutDays = days,
+            focusAreas = setOf(FocusArea.CHEST),
+            injuries = setOf(InjuryArea.NONE),
+            equipment = Equipment.FULL_GYM,
+            experience = Experience.ADVANCED,
+            objective = Objective.BUILD_CONSISTENCY,
+        )
+
+        val generalSets = generalPlan.workouts.filterNot { it.recovery }.sumOf { workout ->
+            workout.exercises.sumOf { it.sets }
+        }
+        val consistencyExercises = consistencyPlan.workouts.filterNot { it.recovery }.flatMap { it.exercises }
+        val consistencySets = consistencyExercises.sumOf { it.sets }
+
+        assertTrue(consistencyExercises.isNotEmpty())
+        assertTrue(consistencyExercises.all { it.sets <= 2 })
+        assertTrue(consistencySets < generalSets)
+    }
 }

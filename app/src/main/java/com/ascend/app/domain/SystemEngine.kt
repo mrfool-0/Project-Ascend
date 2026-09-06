@@ -24,6 +24,9 @@ data class SystemContext(
     val coreReason: String,
     val futureVision: String,
     val minimumPromise: String,
+    val activeDaysLast7: Int = 0,
+    val averageCompletionLast7: Int = 0,
+    val workoutsLast7: Int = 0,
     val recentPlayerMessages: List<String> = emptyList(),
 )
 
@@ -106,6 +109,7 @@ object SystemEngine {
             "• $proteinRemaining g protein remaining (${context.proteinLogged}/${context.proteinTarget})",
             "• $waterRemaining ml hydration remaining (${context.waterLogged}/${context.waterTarget})",
             "• ${context.streak}-day streak",
+            "• 7-day pattern: ${context.activeDaysLast7} active days, ${context.averageCompletionLast7}% average completion, ${context.workoutsLast7} training sessions",
             "• Today's protocol: ${context.todayWorkout}",
         ).joinToString("\n") + "\nNEXT COMMAND: ${nextAction(context)}"
     }
@@ -199,12 +203,34 @@ object SystemEngine {
         val reason = context.coreReason.ifBlank { "become someone who keeps promises to themselves" }
         val minimum = context.minimumPromise.ifBlank { "complete the smallest honest version of today's quest" }
         val quote = MotivationLibrary.quotes[Math.floorMod(context.streak + reason.hashCode(), MotivationLibrary.quotes.size)]
-        return voice(
+        return behaviorCue(context, tone) + " " + voice(
             tone,
             supportive = "You chose this because you want to $reason. You do not need to feel powerful first. $minimum, then let momentum help. $quote",
             direct = "Your reason: $reason. Motivation is optional; the next action is not. $minimum. $quote",
             ruthless = "Enough bargaining. The version of you that you described is built while the current version wants comfort. $minimum—now. $quote",
         )
+    }
+
+    private fun behaviorCue(context: SystemContext, tone: SystemTone): String = when {
+        context.activeDaysLast7 == 0 -> voice(
+            tone,
+            "Your recent log is quiet. That is not a verdict; it means we restart with one action small enough to repeat.",
+            "No progress was logged in the last seven days. Reset the pattern with one action now, not a heroic plan tomorrow.",
+            "The last seven days show no logged follow-through. Stop designing the comeback and complete one small command now.",
+        )
+        context.averageCompletionLast7 < 45 || context.activeDaysLast7 <= 2 -> voice(
+            tone,
+            "Your recent pattern says the plan needs less friction. Choose a smaller minimum and identify the moment that usually breaks the chain.",
+            "Recent adherence is inconsistent. Reduce the daily minimum, anchor it to a fixed cue, and name the obstacle that keeps repeating.",
+            "Your recent behavior is below the standard you chose. Do not add complexity—remove one recurring excuse and lock the minimum action to a fixed time.",
+        )
+        context.averageCompletionLast7 >= 80 || context.streak >= 7 -> voice(
+            tone,
+            "Your recent consistency is strong. Protect the routine and progress only one variable at a time.",
+            "The pattern is working. Keep the routine stable and progress one measurable variable this week.",
+            "You have earned momentum. Do not waste it chasing novelty—raise one standard and keep every other variable stable.",
+        )
+        else -> "Your recent behavior is building, but not yet automatic. Keep the same cue, lower avoidable friction, and complete today's minimum before expanding it."
     }
 
     private fun emotionalResponse(context: SystemContext, tone: SystemTone, input: String): String {

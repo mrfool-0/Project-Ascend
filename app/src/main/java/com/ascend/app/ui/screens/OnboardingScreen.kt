@@ -7,6 +7,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -48,7 +50,7 @@ import kotlin.math.roundToInt
 private const val LAST_STEP = 16
 
 @Composable
-fun OnboardingScreen(onComplete: (OnboardingProfile) -> Unit) {
+fun OnboardingScreen(externalError: String? = null, onComplete: (OnboardingProfile) -> Unit) {
     var step by rememberSaveable { mutableIntStateOf(0) }
     var name by rememberSaveable { mutableStateOf("") }
     var ageText by rememberSaveable { mutableStateOf("28") }
@@ -117,7 +119,13 @@ fun OnboardingScreen(onComplete: (OnboardingProfile) -> Unit) {
             injuries = injuryNames.map(InjuryArea::valueOf).toSet(), injuryNotes = injuryNotes.trim(),
             workoutFrequency = frequency, workoutDays = workoutDayValues.map(DayOfWeek::of).toSet(),
             futureVision = futureVision.trim(), coreReason = coreReason.trim(), minimumPromise = minimumPromise.trim(),
-            manualTargets = manual,
+            manualTargets = manual.takeUnless {
+                it.calories == estimated.calories &&
+                    it.proteinGrams == estimated.proteinGrams &&
+                    it.carbohydrateGrams == estimated.carbohydrateGrams &&
+                    it.fatGrams == estimated.fatGrams &&
+                    it.waterMl == estimated.waterMl
+            },
         )
     }.getOrNull()
 
@@ -135,7 +143,16 @@ fun OnboardingScreen(onComplete: (OnboardingProfile) -> Unit) {
             }
             13 -> {
                 val values = listOf(calorieText, proteinText, carbsText, fatText, waterText).map { it.toIntOrNull() }
-                if (values.any { it == null } || values[0]!! !in 1_000..10_000 || values[4]!! !in 500..10_000) {
+                val calories = values[0] ?: 0
+                val protein = values[1] ?: 0
+                val carbs = values[2] ?: -1
+                val fat = values[3] ?: -1
+                val water = values[4] ?: 0
+                val macroCalories = protein * 4 + carbs * 4 + fat * 9
+                if (
+                    values.any { it == null } || calories !in 1_000..10_000 || protein !in 1..1_000 ||
+                    carbs !in 0..2_000 || fat !in 0..500 || water !in 500..6_000 || macroCalories > calories * 1.5
+                ) {
                     error = "Check the nutrition targets"; return
                 }
             }
@@ -148,36 +165,51 @@ fun OnboardingScreen(onComplete: (OnboardingProfile) -> Unit) {
     }
 
     val titles = listOf(
-        "SYSTEM AWAKENING", "CREATE PLAYER", "CHOOSE THE MAIN QUEST", "SELECT FOCUS AREAS",
-        "HEALTH & LIMITATIONS", "ACTIVITY SIGNAL", "TRAINING EXPERIENCE", "AVAILABLE EQUIPMENT",
-        "TRAINING FREQUENCY", "SET WORKOUT DAYS", "NUTRITION PATH", "TRAINING WINDOW",
-        "MINDSET CALIBRATION", "NUTRITION TARGETS", "PLAYER ANALYSIS", "SYSTEM INITIALIZATION",
-        "SECURE YOUR PROGRESS",
+        "A new campaign", "Create your player", "Choose your main quest", "Choose focus areas",
+        "Health and limitations", "Daily activity", "Training experience", "Available equipment",
+        "Training frequency", "Choose workout days", "Nutrition preference", "Training window",
+        "Mindset calibration", "Nutrition targets", "Your player report", "System initialization",
+        "Secure your progress",
     )
 
     Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(EnergyViolet.copy(.14f), Void), radius = 980f))) {
-        LazyColumn(
-            Modifier.fillMaxSize().imePadding(),
-            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(17.dp),
-        ) {
-            item {
+        Column(Modifier.fillMaxSize().imePadding()) {
+            Column(Modifier.padding(horizontal = 20.dp).padding(top = 18.dp, bottom = 12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    AscendEmblem(52.dp); Spacer(Modifier.width(14.dp))
-                    Column {
-                        Text("ASCEND", style = MaterialTheme.typography.headlineLarge)
-                        Text("PLAYER CREATION PROTOCOL", style = MaterialTheme.typography.labelMedium, color = EnergyCyan)
+                    AscendEmblem(38.dp)
+                    Spacer(Modifier.width(11.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("ASCEND", style = MaterialTheme.typography.titleLarge)
+                        Text("PLAYER CREATION", style = MaterialTheme.typography.labelSmall, color = EnergyCyan)
                     }
+                    if (step > 0) Text("${step.toString().padStart(2, '0')} / $LAST_STEP", style = MaterialTheme.typography.labelMedium, color = TextSecondary)
                 }
+                Spacer(Modifier.height(14.dp))
+                LinearProgressIndicator(
+                    progress = { if (step == 0) .03f else step / LAST_STEP.toFloat() },
+                    modifier = Modifier.fillMaxWidth().height(5.dp),
+                    color = EnergyViolet,
+                    trackColor = Hairline,
+                    strokeCap = StrokeCap.Round,
+                )
+                Spacer(Modifier.height(16.dp))
+                Text(titles[step], style = MaterialTheme.typography.headlineLarge)
             }
-            if (step > 0) item {
-                LinearProgressIndicator(progress = { step / LAST_STEP.toFloat() }, Modifier.fillMaxWidth().height(3.dp), color = EnergyViolet, trackColor = Hairline)
-                Spacer(Modifier.height(9.dp))
-                Text("SEQUENCE ${step.toString().padStart(2, '0')} / $LAST_STEP", style = MaterialTheme.typography.labelMedium, color = TextSecondary)
-            }
-            item { Text(titles[step], style = MaterialTheme.typography.headlineMedium) }
-            item {
-                AnimatedContent(step, transitionSpec = { fadeIn(tween(260)) togetherWith fadeOut(tween(150)) }, label = "player_creation") { page ->
+
+            LazyColumn(
+                Modifier.weight(1f).fillMaxWidth(),
+                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+            ) {
+                item {
+                    AnimatedContent(
+                        targetState = step,
+                        transitionSpec = {
+                            val direction = if (targetState > initialState) 1 else -1
+                            (slideInHorizontally(tween(330)) { it / 5 * direction } + fadeIn(tween(260))) togetherWith
+                                (slideOutHorizontally(tween(230)) { -it / 7 * direction } + fadeOut(tween(180)))
+                        },
+                        label = "player_creation",
+                    ) { page ->
                     when (page) {
                         0 -> InitializationIntro()
                         1 -> ProfilePage(name, { name = it }, ageText, { ageText = it }, heightText, { heightText = it }, weightText, { weightText = it }, targetWeightText, { targetWeightText = it }, sex, { sex = it }, units, { units = it })
@@ -190,7 +222,7 @@ fun OnboardingScreen(onComplete: (OnboardingProfile) -> Unit) {
                         8 -> FrequencyPage(frequency) { frequency = it; workoutDayValues = defaultDays(it) }
                         9 -> WorkoutDaysPage(frequency, workoutDayValues) { workoutDayValues = it }
                         10 -> ChoicePage(DietPreference.entries, diet, { diet = it }) { "Food suggestions will respect this path" }
-                        11 -> ChoicePage(TrainingTime.entries, trainingTime, { trainingTime = it }) { "Used for training reminders" }
+                        11 -> ChoicePage(TrainingTime.entries.filterNot { it == TrainingTime.CUSTOM }, trainingTime, { trainingTime = it }) { "Sets the timing of workout reminders" }
                         12 -> MindsetPage(futureVision, { futureVision = it }, coreReason, { coreReason = it }, minimumPromise, { minimumPromise = it })
                         13 -> NutritionTargetsPage(estimate(), calorieText, { calorieText = it }, proteinText, { proteinText = it }, carbsText, { carbsText = it }, fatText, { fatText = it }, waterText, { waterText = it })
                         14 -> profile()?.let { PlayerReportPage(it) }
@@ -198,16 +230,27 @@ fun OnboardingScreen(onComplete: (OnboardingProfile) -> Unit) {
                         else -> profile()?.let { CloudSavePage(it, onComplete) }
                     }
                 }
+                }
             }
-            if (error != null) item { Text(error!!, color = EnergyCrimson, style = MaterialTheme.typography.bodyMedium) }
-            if (step != LAST_STEP) item {
-                if (step == 0) SystemButton("BEGIN PLAYER CREATION", ::next, Modifier.fillMaxWidth())
-                else Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    SystemButton("BACK", { step-- }, Modifier.weight(.34f), secondary = true)
-                    SystemButton(
-                        when (step) { 13 -> "GENERATE REPORT"; 14 -> "INITIALIZE PLAYER"; 15 -> "SECURE PROGRESS"; else -> "CONTINUE" },
-                        ::next, Modifier.weight(.66f), enabled = step != 15 || initializationReady,
-                    )
+
+            (error ?: externalError)?.let { message ->
+                Text(message, Modifier.padding(horizontal = 20.dp, vertical = 8.dp), color = EnergyCrimson, style = MaterialTheme.typography.bodyMedium)
+            }
+            if (step != LAST_STEP) {
+                Surface(color = GlassSurface, shadowElevation = 14.dp) {
+                    if (step == 0) {
+                        SystemButton("Begin player creation", ::next, Modifier.fillMaxWidth().padding(16.dp))
+                    } else {
+                        Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            SystemButton("Back", { step-- }, Modifier.weight(.32f), secondary = true)
+                            SystemButton(
+                                when (step) { 13 -> "Generate report"; 14 -> "Initialize"; 15 -> "Secure progress"; else -> "Continue" },
+                                ::next,
+                                Modifier.weight(.68f),
+                                enabled = step != 15 || initializationReady,
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -248,7 +291,7 @@ private fun ProfilePage(
             AscendTextField(weight, setWeight, if (units == UnitSystem.METRIC) "WEIGHT KG" else "WEIGHT LB", true, Modifier.weight(1f))
             AscendTextField(target, setTarget, if (units == UnitSystem.METRIC) "TARGET KG" else "TARGET LB", true, Modifier.weight(1f))
         }
-        Text("BIOLOGICAL SEX is used only for the calorie estimate. All targets remain editable.", style = MaterialTheme.typography.labelMedium, color = TextSecondary)
+        Text("ASCEND currently supports adults 18+. Biological sex is used only for the calorie estimate; all targets remain editable.", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
         ChoiceRow(BiologicalSex.entries, sex, setSex)
     }
 }
@@ -414,9 +457,12 @@ private fun NutritionTargetsPage(
 
 @Composable
 private fun PlayerReportPage(profile: OnboardingProfile) {
-    val target = profile.manualTargets ?: return
+    val age = java.time.Period.between(profile.birthDate, LocalDate.now()).years
+    val target = profile.manualTargets ?: NutritionEngine.calculate(
+        profile.weightKg, profile.heightCm, age, profile.sex, profile.activity, profile.objective,
+    )
     val bmi = profile.weightKg / ((profile.heightCm / 100) * (profile.heightCm / 100))
-    val plan = remember(profile) { CustomPlanEngine.generate(profile.workoutFrequency, profile.workoutDays, profile.focusAreas, profile.injuries, profile.equipment, profile.experience) }
+    val plan = remember(profile) { CustomPlanEngine.generate(profile.workoutFrequency, profile.workoutDays, profile.focusAreas, profile.injuries, profile.equipment, profile.experience, profile.objective) }
     val attributes = listOf(
         "TRAINING READINESS" to when (profile.experience) { Experience.BEGINNER -> .48f; Experience.INTERMEDIATE -> .7f; Experience.ADVANCED -> .86f },
         "ACTIVITY BASE" to when (profile.activity) { ActivityLevel.SEDENTARY -> .3f; ActivityLevel.LIGHT -> .5f; ActivityLevel.MODERATE -> .72f; ActivityLevel.VERY_ACTIVE -> .9f },
