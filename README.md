@@ -42,8 +42,6 @@ Third-party attribution is documented in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_
 
 ## Build and run
 
-An installable Android test build is attached to the [latest GitHub release](https://github.com/mrfool-0/Project-Ascend/releases/latest).
-
 1. Open this directory in a current stable Android Studio that supports AGP 9.4.
 2. Install Android SDK Platform 37 and Build Tools 37.x through SDK Manager.
 3. Use JDK 17 or newer (JDK 21 is tested).
