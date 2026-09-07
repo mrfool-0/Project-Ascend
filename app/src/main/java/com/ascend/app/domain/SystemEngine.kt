@@ -19,6 +19,7 @@ data class SystemContext(
     val todayWorkout: String,
     val tomorrowWorkout: String,
     val workoutFrequency: Int,
+    val todayExercises: List<SystemExercisePrescription> = emptyList(),
     val bmr: Int = 0,
     val carbohydrateTarget: Int = 0,
     val fatTarget: Int = 0,
@@ -34,6 +35,13 @@ data class SystemContext(
     val recentPlayerMessages: List<String> = emptyList(),
 )
 
+data class SystemExercisePrescription(
+    val name: String,
+    val sets: Int,
+    val minReps: Int,
+    val maxReps: Int,
+)
+
 /**
  * ASCEND's private, on-device conversation brain.
  *
@@ -42,7 +50,7 @@ data class SystemContext(
  */
 object SystemEngine {
     private enum class Intent {
-        EMERGENCY, PAIN, CALORIES, PROTEIN, HYDRATION, WORKOUT, SCHEDULE, RECOVERY,
+        EMERGENCY, PAIN, FORM, CALORIES, PROTEIN, HYDRATION, WORKOUT, SCHEDULE, RECOVERY,
         PROGRESS, MOTIVATION, EMOTION, PLATEAU, WEIGHT_GOAL, APP_HELP, IDENTITY, GREETING,
     }
 
@@ -80,6 +88,7 @@ object SystemEngine {
     }
 
     private fun responseFor(intent: Intent, context: SystemContext, tone: SystemTone, input: String): String = when (intent) {
+        Intent.FORM -> formResponse(context, input)
         Intent.CALORIES -> calorieResponse(context, tone)
         Intent.PROTEIN -> proteinResponse(context, tone)
         Intent.HYDRATION -> hydrationResponse(context, tone)
@@ -156,7 +165,9 @@ object SystemEngine {
     private fun workoutResponse(context: SystemContext, tone: SystemTone): String {
         val limitation = context.injuries.activeDescription()
         val focus = context.focusAreas.readableList().ifBlank { "your selected objective" }
-        val base = "TODAY'S PROTOCOL: ${context.todayWorkout}. It supports $focus. Warm up gradually, keep 2–3 reps in reserve on early sets, and use controlled form."
+        val prescription = context.todayExercises.joinToString(" · ") { "${it.name} ${it.sets}×${it.minReps}–${it.maxReps}" }
+            .ifBlank { "Recovery movement only" }
+        val base = "TODAY'S PROTOCOL: ${context.todayWorkout}. $prescription. It supports $focus; warm up gradually and keep 2–3 reps in reserve on early sets."
         val safety = if (limitation == null) "Stop if a movement causes sharp or unusual pain." else "Your reported limitation is $limitation; use the programmed substitution and stop any painful movement."
         return "$base $safety " + voice(
             tone,
@@ -164,6 +175,35 @@ object SystemEngine {
             direct = "Start the warm-up before your mind opens another negotiation.",
             ruthless = "You do not need another speech. Put the phone down, begin the warm-up, and earn the feeling you are waiting for.",
         )
+    }
+
+    private fun formResponse(context: SystemContext, input: String): String {
+        val prescribed = context.todayExercises
+            .map { it to exerciseMatchScore(input, it.name.normalized()) }
+            .maxByOrNull { it.second }
+            ?.takeIf { it.second > 0 }
+            ?.first
+        val subject = prescribed?.name ?: "that movement"
+        val signal = "${prescribed?.name.orEmpty()} $input".normalized()
+        val cue = when {
+            signal.containsAny("overhead press", "shoulder press", "pike push") ->
+                "Stack ribs over pelvis, keep wrists over elbows, press without leaning back, and lower under control."
+            signal.containsAny("bench press", "floor press", "chest press", "push up", "push-up") ->
+                "Set the shoulder blades, keep wrists stacked, lower with control, and press while the elbows stay in a comfortable path."
+            signal.containsAny("squat", "leg press", "lunge", "split squat") ->
+                "Brace before descending, let knees track with the toes, use a controlled pain-free depth, and drive through the whole foot."
+            signal.containsAny("deadlift", "romanian", "hip hinge") ->
+                "Brace first, push the hips back, keep the load close and spine controlled, then stop the descent before your back position changes."
+            signal.containsAny("row", "pulldown", "pull down", "pullover") ->
+                "Keep ribs stacked, start by controlling the shoulder blade, pull the elbow toward the hip or ribs, and avoid shrugging."
+            signal.containsAny("plank", "dead bug", "bird dog") ->
+                "Brace as if preparing for a light impact, keep ribs and pelvis stacked, move slowly, and stop before the lower back compensates."
+            signal.containsAny("hip thrust", "glute bridge") ->
+                "Set the ribs down, drive through the feet, finish by squeezing the glutes, and avoid overextending the lower back."
+            else -> "Use a stable setup, a controlled pain-free range, smooth tempo, and stop the set when technique starts to change."
+        }
+        val dose = prescribed?.let { " Your prescription is ${it.sets} sets of ${it.minReps}–${it.maxReps} reps." }.orEmpty()
+        return "FORM PROTOCOL // $subject: $cue$dose Sharp or worsening pain is a stop signal, not a form challenge."
     }
 
     private fun scheduleResponse(context: SystemContext, tone: SystemTone, input: String): String {
@@ -328,6 +368,7 @@ object SystemEngine {
         val phrases = when (intent) {
             Intent.EMERGENCY -> listOf("chest pain", "cannot breathe", "can't breathe", "fainting", "passed out", "suicid", "kill myself", "end my life", "self harm", "emergency")
             Intent.PAIN -> listOf("injury", "injured", "pain", "hurts", "hurt", "sprain", "swollen", "medical", "physio")
+            Intent.FORM -> listOf("how to perform", "how do i do", "how should i do", "proper form", "my form", "technique", "movement cue", "form check")
             Intent.CALORIES -> listOf("calorie", "kcal", "food budget", "how much can i eat", "ate today", "meal")
             Intent.PROTEIN -> listOf("protein", "macro", "muscle food")
             Intent.HYDRATION -> listOf("water", "hydrate", "hydration", "thirst")
@@ -348,9 +389,57 @@ object SystemEngine {
                 input == phrase -> 4
                 " $input ".contains(" $phrase ") -> 3
                 input.contains(phrase) -> 2
+                intent != Intent.EMERGENCY && intent != Intent.PAIN && fuzzyPhraseMatch(input, phrase) -> 1
                 else -> 0
             }
         }
+    }
+
+    private fun exerciseMatchScore(input: String, exercise: String): Int {
+        val meaningful = exercise.split(' ').filter { it.length >= 4 && it !in setOf("dumbbell", "barbell", "supported") }
+        return meaningful.count { fuzzyPhraseMatch(input, it) }
+    }
+
+    private fun fuzzyPhraseMatch(input: String, phrase: String): Boolean {
+        val inputTokens = input.split(' ').filter(String::isNotBlank)
+        val phraseTokens = phrase.split(' ').filter(String::isNotBlank)
+        if (phraseTokens.isEmpty() || inputTokens.isEmpty()) return false
+        if (phraseTokens.size == 1) return inputTokens.any { fuzzyTokenMatch(it, phraseTokens.single()) }
+        if (inputTokens.size < phraseTokens.size) return false
+        return inputTokens.windowed(phraseTokens.size).any { window ->
+            window.zip(phraseTokens).all { (actual, expected) -> fuzzyTokenMatch(actual, expected) }
+        }
+    }
+
+    private fun fuzzyTokenMatch(actual: String, expected: String): Boolean {
+        if (actual == expected || actual.contains(expected) || expected.contains(actual) && actual.length >= 5) return true
+        val shortest = minOf(actual.length, expected.length)
+        val allowance = when {
+            shortest >= 7 -> 2
+            shortest >= 4 -> 1
+            else -> 0
+        }
+        return allowance > 0 && damerauLevenshtein(actual, expected) <= allowance
+    }
+
+    private fun damerauLevenshtein(left: String, right: String): Int {
+        val distances = Array(left.length + 1) { IntArray(right.length + 1) }
+        for (i in 0..left.length) distances[i][0] = i
+        for (j in 0..right.length) distances[0][j] = j
+        for (i in 1..left.length) {
+            for (j in 1..right.length) {
+                val substitution = if (left[i - 1] == right[j - 1]) 0 else 1
+                distances[i][j] = minOf(
+                    distances[i - 1][j] + 1,
+                    distances[i][j - 1] + 1,
+                    distances[i - 1][j - 1] + substitution,
+                )
+                if (i > 1 && j > 1 && left[i - 1] == right[j - 2] && left[i - 2] == right[j - 1]) {
+                    distances[i][j] = minOf(distances[i][j], distances[i - 2][j - 2] + substitution)
+                }
+            }
+        }
+        return distances[left.length][right.length]
     }
 
     private fun voice(tone: SystemTone, supportive: String, direct: String, ruthless: String): String = when (tone) {

@@ -142,24 +142,13 @@ private fun ExerciseCard(
     onUpdateSet: (WorkoutSetEntity, Double, Int, Boolean) -> Unit,
     onRemove: (WorkoutExerciseDetail) -> Unit,
 ) {
-    var showMovementCue by rememberSaveable(detail.link.id) { mutableStateOf(false) }
     AscendCard(Modifier.fillMaxWidth(), accent = if (sets.all { it.completed }) EnergyEmerald else EnergyViolet, highlighted = sets.all { it.completed }) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(detail.exercise.name, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
             IconButton(onClick = { onRemove(detail) }) { Icon(Icons.Outlined.DeleteOutline, "Remove ${detail.exercise.name}", tint = EnergyCrimson) }
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("${sets.size} sets · ${detail.link.minReps}–${detail.link.maxReps} reps", style = MaterialTheme.typography.bodySmall, color = EnergyCyan)
-            Spacer(Modifier.weight(1f))
-            TextButton(onClick = { showMovementCue = !showMovementCue }) { Text(if (showMovementCue) "Hide cue" else "Movement cue") }
-        }
-        AnimatedVisibility(showMovementCue) {
-            Column {
-                Spacer(Modifier.height(8.dp))
-                ExerciseMotionDemo(detail.exercise.name, detail.exercise.muscleGroup)
-                Spacer(Modifier.height(12.dp))
-            }
-        }
+        Text("${sets.size} sets · ${detail.link.minReps}–${detail.link.maxReps} reps", style = MaterialTheme.typography.bodySmall, color = EnergyCyan)
+        Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth()) {
             Text("SET", Modifier.width(44.dp), style = MaterialTheme.typography.labelMedium, color = TextSecondary)
             Text("KG", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = TextSecondary)

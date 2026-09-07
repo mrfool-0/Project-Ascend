@@ -20,12 +20,6 @@ Copyright Google LLC. Open-source Firebase Android SDK components are distribute
 
 Google Play services, Google Identity libraries, Firebase hosted services, and related APIs are additionally governed by their applicable Google terms of service.
 
-## Exercise motion render toolchain
-
-The repository's isolated `exercise-motion-pipeline` uses Remotion 4 under the Remotion License. Free use is limited to individuals, non-profits, evaluation, and eligible small organizations; other for-profit organizations must obtain the applicable company license. See <https://www.remotion.dev/license>.
-
-React, Three.js, React Three Fiber, React Three Drei, `@remotion/three`, and Zod are distributed under their respective MIT licenses. These packages are render-time/web-preview tooling and are not shipped as JavaScript dependencies in the Android APK. The app includes only an original procedural demonstration rendered by this toolchain; no third-party model, texture, or motion asset is bundled.
-
 ## Manrope
 
 Copyright 2018 The Manrope Project Authors. Manrope is distributed under the SIL Open Font License 1.1. Project: <https://github.com/sharanda/manrope>

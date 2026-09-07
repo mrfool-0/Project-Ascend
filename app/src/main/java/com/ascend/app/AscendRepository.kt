@@ -240,7 +240,7 @@ class AscendRepository(
         require(clean.isNotEmpty() && clean.length <= 500) { "Message must be between 1 and 500 characters" }
         val profile = dao.observeProfile().first() ?: error("Complete player setup before using SYSTEM")
         val target = dao.observeNutritionTarget().first() ?: error("Nutrition targets are unavailable")
-        val conversation = dao.recentSystemMessages().sortedBy { it.createdAt }
+        val conversation = dao.recentSystemMessages(16).sortedBy { it.createdAt }
         val conversationHistory = conversation.filter { it.role == "PLAYER" }.map { it.message }
         dao.insertSystemMessage(SystemMessageEntity(id(), "PLAYER", clean, now()))
         try {
@@ -250,7 +250,18 @@ class AscendRepository(
         val recentSummaries = dao.dailySummariesBetween(recentStart.toString(), date.toString())
         val scheduledDays = profile.workoutDays.split(',').mapNotNull { it.toIntOrNull() }.map { DayOfWeek.of(it) }.toSet()
         val index = CustomPlanEngine.templateIndexFor(date, LocalDate.parse(profile.programStartDate), scheduledDays)
-        val workout = dao.templateForIndex(index)?.name ?: "RECOVERY PROTOCOL"
+        val todayTemplate = dao.templateForIndex(index)
+        val workout = todayTemplate?.name ?: "RECOVERY PROTOCOL"
+        val todayExercises = todayTemplate?.takeUnless { it.isRecovery }?.let { template ->
+            dao.templateExercises(template.id).map { detail ->
+                SystemExercisePrescription(
+                    name = detail.exercise.name,
+                    sets = detail.link.targetSets,
+                    minReps = detail.link.minReps,
+                    maxReps = detail.link.maxReps,
+                )
+            }
+        }.orEmpty()
         val tomorrowIndex = CustomPlanEngine.templateIndexFor(date.plusDays(1), LocalDate.parse(profile.programStartDate), scheduledDays)
         val tomorrowWorkout = dao.templateForIndex(tomorrowIndex)?.name ?: "RECOVERY PROTOCOL"
         val systemContext = SystemContext(
@@ -266,6 +277,7 @@ class AscendRepository(
             todayWorkout = workout,
             tomorrowWorkout = tomorrowWorkout,
             workoutFrequency = profile.workoutFrequency,
+            todayExercises = todayExercises,
             bmr = target.estimatedBmr,
             carbohydrateTarget = target.carbohydrateGrams,
             fatTarget = target.fatGrams,

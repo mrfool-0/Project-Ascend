@@ -16,6 +16,49 @@ class CustomPlanEngineTest {
         }
     }
 
+    @Test fun `full body focus resolves automatic architecture into balanced varied sessions`() {
+        val days = setOf(DayOfWeek.MONDAY, DayOfWeek.WEDNESDAY, DayOfWeek.FRIDAY)
+        val plan = CustomPlanEngine.generate(
+            frequency = 3,
+            workoutDays = days,
+            focusAreas = setOf(FocusArea.FULL_BODY),
+            injuries = setOf(InjuryArea.NONE),
+            equipment = Equipment.FULL_GYM,
+            experience = Experience.INTERMEDIATE,
+            trainingSplit = TrainingSplit.AUTO,
+        )
+        val sessions = plan.workouts.filterNot { it.recovery }
+
+        assertTrue(plan.title.contains("FULL BODY"))
+        assertTrue(sessions.all { it.name.startsWith("FULL BODY") })
+        assertTrue(sessions.all { workout ->
+            val groups = workout.exercises.map { it.muscleGroup }.toSet()
+            "Chest" in groups || "Shoulders" in groups
+        })
+        assertTrue(sessions.all { workout -> workout.exercises.any { it.muscleGroup == "Back" } })
+        assertTrue(sessions.all { workout -> workout.exercises.any { it.muscleGroup == "Legs" } })
+        assertTrue(sessions.all { workout -> workout.exercises.any { it.muscleGroup in setOf("Hamstrings", "Glutes") } })
+        assertTrue(sessions.all { workout -> workout.exercises.any { it.muscleGroup == "Core" } })
+        assertEquals(sessions.size, sessions.map { it.exercises.map(PlannedExercise::name) }.distinct().size)
+    }
+
+    @Test fun `high frequency full body plan controls per session volume`() {
+        val days = DayOfWeek.entries.take(5).toSet()
+        val plan = CustomPlanEngine.generate(
+            frequency = 5,
+            workoutDays = days,
+            focusAreas = setOf(FocusArea.FULL_BODY),
+            injuries = setOf(InjuryArea.NONE),
+            equipment = Equipment.DUMBBELLS,
+            experience = Experience.ADVANCED,
+            objective = Objective.MUSCLE_GAIN,
+        )
+
+        val exercises = plan.workouts.filterNot { it.recovery }.flatMap { it.exercises }
+        assertTrue(exercises.all { it.sets <= 2 })
+        assertTrue(plan.safetyNotes.any { "lower per-session" in it })
+    }
+
     @Test fun `selected architecture recalculates weekly protocols`() {
         assertEquals(listOf("PUSH", "PULL", "LEGS"), CustomPlanEngine.weeklyArchitecture(3, TrainingSplit.PUSH_PULL_LEGS))
         assertEquals(listOf("UPPER A", "LOWER A", "UPPER B", "LOWER B"), CustomPlanEngine.weeklyArchitecture(4, TrainingSplit.UPPER_LOWER))

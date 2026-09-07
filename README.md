@@ -6,16 +6,16 @@ ASCEND is an offline-first native Android health, training, nutrition, habit, an
 
 ## What is implemented
 
-- Sixteen-stage game-style player creation with safe-area-aware spacing, focus areas, injury screening, training frequency, exact workout weekdays, mindset calibration, animated graphs, a generated report, and a staggered tactical initialization sequence
+- Sixteen-stage game-style player creation with safe-area-aware spacing, selectable Full Body or targeted focus areas, injury screening, training frequency, exact workout weekdays, mindset calibration, animated graphs, a generated report, and a staggered tactical initialization sequence
 - Mifflin–St Jeor calorie estimation with transparent maintenance calculation; bounded calorie, macro, and water inputs; smart milliliter/liter formatting; and live macro-energy feedback
 - Level 1–100 progression, eleven original ranks, a durable XP ledger, duplicate-source protection, streaks and achievements
-- A custom 2–6 day program generated from focus, experience, equipment, schedule, reported limitations, and the selected Full Body, Push/Pull/Legs, Upper/Lower, or Automatic architecture; the weekly map recalculates for the selected frequency
-- Workout session logging for every set, weight and rep; a background-accurate rest timer; completion rewards; progression suggestions, PR detection, a restrained glitch/shake quest-entry sequence, and an expandable animated movement cue on every exercise. A lightweight packaged Remotion loop is used where available, with a procedural fallback for every other movement.
+- A custom 2–6 day program generated from focus, experience, equipment, schedule, reported limitations, and the selected Full Body, Push/Pull/Legs, Upper/Lower, or Automatic architecture; frequency-aware working sets and rotating A/B/C movement patterns keep weekly volume balanced instead of repeating the same session
+- Clean, animation-free workout entry and logging for every set, weight and rep; a background-accurate rest timer; completion rewards; progression suggestions; and PR detection
 - A searchable offline catalog of global everyday foods—including common grains, fruit, vegetables, dairy, pulses, beef, poultry, seafood, and prepared meals—plus manual custom-food creation, meal logging, scaled servings, saved meals, and hydration
 - Checkbox, number, duration and avoidance habit models with configurable difficulty and a 75 XP daily anti-farming cap
 - Body-weight logging, trend-focused charting, 7-day averages, consistency heatmap, training/nutrition summaries and ASCEND game scores
 - Daily, weekly, and player-created quest ledger; rank badges; level-up/quest/PR presentation; configurable WorkManager reminders; and settings. Quest and Progress are available from the player profile while the bottom bar stays focused on Home, Nutrition, Habits, and SYSTEM.
-- ASCEND SYSTEM, a tactical Firebase AI Logic performance OS with a capable on-device fallback and a custom hooded interface identity. It understands natural fitness questions and follow-ups, reads exact calibrated BMR, calories, macros, hydration, weekly split, habit streaks, live daily totals, and recent seven-day behavior, offers Ally/Command/Ruthless voice modes, preserves local emergency safeguards, and renders concise robotic typewriter responses.
+- ASCEND SYSTEM, a tactical Firebase AI Logic performance OS with a capable on-device fallback and a custom hooded interface identity. It understands misspellings, natural fitness questions, exercise-form requests, compound requests, and follow-ups; reads the exact current sets/reps plus calibrated BMR, macros, hydration, weekly split, streaks, live totals, and recent behavior; offers Ally/Command/Ruthless voice modes; preserves local emergency safeguards; and renders concise robotic typewriter responses.
 - Action-capable SYSTEM commands: explicit requests can create scheduled habits or custom daily quests, with bounded XP, duplicate protection, and tap-to-complete/revert ledger behavior. Coaching adapts to logged consistency using transparent motivational interviewing and implementation intentions; covert or coercive manipulation is explicitly forbidden.
 - Room persistence and Preferences DataStore; no analytics, ads, or mandatory network access
 - A local player profile photo picker that stores the selected image privately and decodes it efficiently for display
@@ -34,7 +34,6 @@ ASCEND is an offline-first native Android health, training, nutrition, habit, an
 - DataStore 1.2.1
 - Coroutines and StateFlow
 - WorkManager 2.11.2
-- Remotion 4 + `@remotion/three` render-time exercise pipeline, with isolated `@react-three/fiber`/`drei` web preview primitives
 - MVVM with a repository boundary and testable domain engines
 
 The project targets Android API 37 and supports Android 8.0/API 26 and newer. Dependency versions are pinned and there are no dynamic versions.
@@ -42,6 +41,8 @@ The project targets Android API 37 and supports Android 8.0/API 26 and newer. De
 Third-party attribution is documented in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) and is also summarized in the app's Profile → Account & privacy section. Bundled font license texts remain available inside the APK under `assets/licenses/`.
 
 ## Build and run
+
+An installable Android test build is attached to the [latest GitHub release](https://github.com/mrfool-0/Project-Ascend/releases/latest).
 
 1. Open this directory in a current stable Android Studio that supports AGP 9.4.
 2. Install Android SDK Platform 37 and Build Tools 37.x through SDK Manager.
@@ -66,20 +67,15 @@ com.ascend.app/
 │   └── notifications/  WorkManager reminder scheduling
 ├── domain/             Nutrition, level, rank, quest, streak, PR and trend engines
 ├── ui/
-│   ├── components/     Premium UI primitives, avatars and motion cues
+│   ├── components/     Premium UI primitives and avatars
 │   ├── screens/        Onboarding and feature screens
 │   └── theme/          Obsidian palette, shape system and typography
 ├── AscendRepository    Offline data orchestration and XP transaction rules
 ├── AscendViewModel     Stable reactive screen state and user actions
 └── MainActivity        Compose navigation and system-level presentation
-
-exercise-motion-pipeline/
-├── src/three/          Procedural and dynamically loaded humanoid rigs
-├── src/web/            Isolated real-time R3F/drei preview wrapper
-└── examples/           Parameterized render jobs
 ```
 
-Room owns structured health/progression records. DataStore owns lightweight preferences that are not relational. UI code observes repository flows through the ViewModel; composables never access the database directly. The Remotion/Three package is render-time tooling only, so WebGL does not inflate or burden the Android runtime. Its GLB loader accepts dynamic publisher-owned paths and no copyrighted 3D model is bundled.
+Room owns structured health/progression records. DataStore owns lightweight preferences that are not relational. UI code observes repository flows through the ViewModel; composables never access the database directly.
 
 ## Database
 
@@ -123,6 +119,8 @@ Local unit tests cover:
 - weight trend calculation
 - nutrition-target bounds, macro coherence, and liter-to-milliliter conversion
 - Full Body and selected-split weekly-map scaling across 3/4/5-day routines
+- balanced Full Body movement coverage, workout variation, and frequency-aware volume
+- typo-tolerant SYSTEM intent detection, contextual follow-ups, and exercise-form answers
 - safe natural-language parsing for habit and custom-quest creation commands
 
 ## Privacy and safety

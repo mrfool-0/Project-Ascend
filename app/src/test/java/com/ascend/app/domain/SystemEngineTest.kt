@@ -17,6 +17,10 @@ class SystemEngineTest {
         todayWorkout = "UPPER",
         tomorrowWorkout = "RECOVERY PROTOCOL",
         workoutFrequency = 4,
+        todayExercises = listOf(
+            SystemExercisePrescription("Barbell Bench Press", 3, 6, 10),
+            SystemExercisePrescription("Chest Supported Row", 3, 8, 12),
+        ),
         bmr = 1_710,
         carbohydrateTarget = 245,
         fatTarget = 65,
@@ -32,6 +36,22 @@ class SystemEngineTest {
     fun `nutrition answers use live remaining targets`() {
         assertTrue("700" in SystemEngine.respond("How many calories are left?", context))
         assertTrue("45" in SystemEngine.respond("protein status", context))
+    }
+
+    @Test
+    fun `misspelled nutrition and workout questions still resolve`() {
+        assertTrue("700" in SystemEngine.respond("how many caloreis are lft", context))
+        val workout = SystemEngine.respond("what shuld i tran today", context)
+        assertTrue("Barbell Bench Press" in workout)
+        assertTrue("3×6–10" in workout)
+    }
+
+    @Test
+    fun `form question selects the prescribed exercise and exact dose`() {
+        val answer = SystemEngine.respond("how shuld i do my bench pres with proper form", context)
+        assertTrue("Barbell Bench Press" in answer)
+        assertTrue("3 sets of 6–10 reps" in answer)
+        assertTrue("shoulder blades" in answer)
     }
 
     @Test

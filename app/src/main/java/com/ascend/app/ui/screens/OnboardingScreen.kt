@@ -215,7 +215,12 @@ fun OnboardingScreen(externalError: String? = null, onComplete: (OnboardingProfi
                         0 -> InitializationIntro()
                         1 -> ProfilePage(name, { name = it }, ageText, { ageText = it }, heightText, { heightText = it }, weightText, { weightText = it }, targetWeightText, { targetWeightText = it }, sex, { sex = it }, units, { units = it })
                         2 -> ChoicePage(Objective.entries, objective, { objective = it }, objectiveCopy)
-                        3 -> MultiChoicePage(FocusArea.entries, focusNames, 4) { focusNames = it }
+                        3 -> MultiChoicePage(FocusArea.entries, focusNames, 4) { updated ->
+                            if (FocusArea.FULL_BODY.name in updated && FocusArea.FULL_BODY.name !in focusNames) {
+                                trainingSplit = TrainingSplit.FULL_BODY
+                            }
+                            focusNames = updated
+                        }
                         4 -> InjuryPage(injuryNames, { injuryNames = it }, injuryNotes, { injuryNotes = it })
                         5 -> ChoicePage(ActivityLevel.entries, activity, { activity = it }, activityCopy)
                         6 -> ChoicePage(Experience.entries, experience, { experience = it }) { experienceCopy(it) }

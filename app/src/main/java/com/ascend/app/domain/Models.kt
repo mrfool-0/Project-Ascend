@@ -19,7 +19,7 @@ enum class TrainingSplit(val displayName: String, val description: String) {
     PUSH_PULL_LEGS("PUSH / PULL / LEGS", "Movement-pattern rotation with balanced volume"),
     UPPER_LOWER("UPPER / LOWER", "Alternating upper and lower body sessions"),
 }
-enum class FocusArea { CHEST, BACK, SHOULDERS, ARMS, CORE, GLUTES, LEGS, ENDURANCE, MOBILITY }
+enum class FocusArea { FULL_BODY, CHEST, BACK, SHOULDERS, ARMS, CORE, GLUTES, LEGS, ENDURANCE, MOBILITY }
 enum class InjuryArea { NONE, LOWER_BACK, KNEE, SHOULDER, HIP, WRIST, ANKLE, CARDIOVASCULAR, OTHER }
 enum class HabitType { CHECKBOX, NUMBER, DURATION, AVOIDANCE }
 enum class HabitDifficulty(val xp: Int) { NORMAL(10), MEDIUM(15), HARD(25) }

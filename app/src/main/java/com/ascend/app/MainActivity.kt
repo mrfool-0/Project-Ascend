@@ -49,12 +49,10 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.ascend.app.domain.CustomPlanEngine
 import com.ascend.app.ui.components.AngularShape
-import com.ascend.app.ui.components.QuestLaunchOverlay
 import com.ascend.app.ui.components.SystemAvatar
 import com.ascend.app.ui.screens.*
 import com.ascend.app.ui.theme.*
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.DayOfWeek
 
@@ -108,9 +106,7 @@ private fun MainNavigation(viewModel: AscendViewModel, preferences: com.ascend.a
     val backStack by navController.currentBackStackEntryAsState()
     val route = backStack?.destination?.route
     val snackbarHost = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
     var overlay by remember { mutableStateOf<UiEvent?>(null) }
-    var questLaunching by remember { mutableStateOf(false) }
     val haptic = LocalHapticFeedback.current
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
@@ -146,14 +142,8 @@ private fun MainNavigation(viewModel: AscendViewModel, preferences: com.ascend.a
         }
     }
     fun startWorkout() {
-        if (questLaunching) return
-        questLaunching = true
         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-        scope.launch {
-            delay(1_050)
-            questLaunching = false
-            viewModel.startWorkout { navController.navigate("workout") { launchSingleTop = true } }
-        }
+        viewModel.startWorkout { navController.navigate("workout") { launchSingleTop = true } }
     }
 
     Box(Modifier.fillMaxSize().background(Void)) {
@@ -239,7 +229,6 @@ private fun MainNavigation(viewModel: AscendViewModel, preferences: com.ascend.a
             }
         }
         EventOverlay(overlay)
-        QuestLaunchOverlay(questLaunching)
     }
 }
 

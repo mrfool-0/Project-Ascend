@@ -253,7 +253,7 @@ fun ProfileSettingsScreen(
                     subtitle = "Libraries, fonts and licenses",
                 ) {
                     Text(
-                        "AndroidX, Jetpack Compose, Kotlin, Coil, and the Firebase Android SDK use Apache License 2.0 components. Manrope and JetBrains Mono use the SIL Open Font License 1.1. The isolated Remotion/Three render toolchain has separate terms documented in the repository; complete attribution is in THIRD_PARTY_NOTICES.md.",
+                        "AndroidX, Jetpack Compose, Kotlin, Coil, and the Firebase Android SDK use Apache License 2.0 components. Manrope and JetBrains Mono use the SIL Open Font License 1.1. Complete attribution is in THIRD_PARTY_NOTICES.md.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = TextSecondary,
                     )
