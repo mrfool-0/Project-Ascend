@@ -26,6 +26,8 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -44,6 +46,7 @@ import com.ascend.app.ui.components.AngularShape
 import com.ascend.app.ui.components.AscendCard
 import com.ascend.app.ui.components.SystemButton
 import com.ascend.app.ui.theme.*
+import com.ascend.app.ui.components.StatusPill
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.DayOfWeek
@@ -84,10 +87,13 @@ fun OnboardingScreen(externalError: String? = null, onComplete: (OnboardingProfi
     var waterText by rememberSaveable { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var initializationReady by remember { mutableStateOf(false) }
+    val motion = LocalMotionEnabled.current
+    val pageScroll = androidx.compose.foundation.lazy.rememberLazyListState()
 
-    LaunchedEffect(step) {
+    LaunchedEffect(step, motion) {
+        pageScroll.scrollToItem(0)
         initializationReady = false
-        if (step == 15) { delay(4_100); initializationReady = true }
+        if (step == 15) { if (motion) delay(4_100); initializationReady = true }
     }
 
     fun metricValues(): Triple<Double, Double, Double> {
@@ -192,6 +198,7 @@ fun OnboardingScreen(externalError: String? = null, onComplete: (OnboardingProfi
                     color = EnergyViolet,
                     trackColor = Hairline,
                     strokeCap = StrokeCap.Round,
+                    drawStopIndicator = {},
                 )
                 Spacer(Modifier.height(16.dp))
                 Text(titles[step], style = MaterialTheme.typography.headlineLarge)
@@ -199,6 +206,7 @@ fun OnboardingScreen(externalError: String? = null, onComplete: (OnboardingProfi
 
             LazyColumn(
                 Modifier.weight(1f).fillMaxWidth(),
+                state = pageScroll,
                 contentPadding = PaddingValues(start = 24.dp, top = 8.dp, end = 24.dp, bottom = 24.dp),
             ) {
                 item {
@@ -206,8 +214,8 @@ fun OnboardingScreen(externalError: String? = null, onComplete: (OnboardingProfi
                         targetState = step,
                         transitionSpec = {
                             val direction = if (targetState > initialState) 1 else -1
-                            (slideInHorizontally(tween(330)) { it / 5 * direction } + fadeIn(tween(260))) togetherWith
-                                (slideOutHorizontally(tween(230)) { -it / 7 * direction } + fadeOut(tween(180)))
+                            (slideInHorizontally(tween(300, delayMillis = 90)) { it / 16 * direction } + fadeIn(tween(220, delayMillis = 90))) togetherWith
+                                fadeOut(tween(90))
                         },
                         label = "player_creation",
                     ) { page ->
@@ -281,12 +289,18 @@ fun OnboardingScreen(externalError: String? = null, onComplete: (OnboardingProfi
 private fun InitializationIntro() {
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         AscendCard(Modifier.fillMaxWidth(), highlighted = true) {
-            Text("A NEW CAMPAIGN IS READY", style = MaterialTheme.typography.titleLarge, color = EnergyCyan)
-            Spacer(Modifier.height(10.dp))
-            Text("The system will study your objective, schedule, body metrics, experience, equipment, and limitations—then forge a training and nutrition protocol around you.", style = MaterialTheme.typography.bodyLarge)
-            Spacer(Modifier.height(16.dp))
-            listOf("PERSONALIZED TRAINING", "ADAPTIVE NUTRITION", "MENTAL RESOLVE", "DAILY QUESTS").forEach {
-                Text("◆  $it", style = MaterialTheme.typography.labelLarge, color = TextSecondary, modifier = Modifier.padding(vertical = 4.dp))
+            StatusPill("Your next chapter", EnergyCyan)
+            Spacer(Modifier.height(24.dp))
+            Text("Build the player.\nBecome the proof.", style = MaterialTheme.typography.displayMedium)
+            Spacer(Modifier.height(14.dp))
+            Text("A training plan built around your body, your schedule and the person you want to become.", style = MaterialTheme.typography.bodyLarge, color = TextSecondary)
+            Spacer(Modifier.height(24.dp))
+            listOf("01" to "Train with purpose", "02" to "Fuel your performance", "03" to "Build everyday discipline").forEach { (number, label) ->
+                Row(Modifier.fillMaxWidth().padding(vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(number, style = MaterialTheme.typography.labelMedium, color = EnergyCyan)
+                    Spacer(Modifier.width(14.dp))
+                    Text(label, style = MaterialTheme.typography.titleMedium)
+                }
             }
         }
         QuoteCard("The first level begins when intention becomes an action.")
@@ -566,12 +580,7 @@ private fun PlayerReportPage(profile: OnboardingProfile) {
     )
     val bmi = profile.weightKg / ((profile.heightCm / 100) * (profile.heightCm / 100))
     val plan = remember(profile) { CustomPlanEngine.generate(profile.workoutFrequency, profile.workoutDays, profile.focusAreas, profile.injuries, profile.equipment, profile.experience, profile.objective, profile.trainingSplit) }
-    val attributes = listOf(
-        "TRAINING READINESS" to when (profile.experience) { Experience.BEGINNER -> .48f; Experience.INTERMEDIATE -> .7f; Experience.ADVANCED -> .86f },
-        "ACTIVITY BASE" to when (profile.activity) { ActivityLevel.SEDENTARY -> .3f; ActivityLevel.LIGHT -> .5f; ActivityLevel.MODERATE -> .72f; ActivityLevel.VERY_ACTIVE -> .9f },
-        "RECOVERY SPACE" to ((7 - profile.workoutFrequency) / 5f).coerceIn(.2f, 1f),
-        "PLAN SPECIFICITY" to (.62f + profile.focusAreas.size * .08f).coerceAtMost(.94f),
-    )
+    val sessionMinutes = plan.workouts.take(plan.weeklyDays.size).map { it.name to it.estimatedMinutes }
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         AscendCard(Modifier.fillMaxWidth(), highlighted = true, accent = EnergyEmerald) {
             Text("ANALYSIS COMPLETE", style = MaterialTheme.typography.labelLarge, color = EnergyEmerald)
@@ -580,8 +589,12 @@ private fun PlayerReportPage(profile: OnboardingProfile) {
             Text("${profile.workoutFrequency}-DAY MAP · ${profile.trainingSplit.displayName}", style = MaterialTheme.typography.labelMedium, color = TextSecondary)
         }
         AscendCard(Modifier.fillMaxWidth()) {
-            Text("PLAYER ATTRIBUTE GRAPH", style = MaterialTheme.typography.labelLarge, color = EnergyViolet)
-            Spacer(Modifier.height(12.dp)); AttributeGraph(attributes)
+            Text("YOUR TRAINING WEEK", style = MaterialTheme.typography.labelLarge, color = EnergyViolet)
+            Spacer(Modifier.height(6.dp))
+            Text("Estimated session time · ${sessionMinutes.sumOf { it.second }} min / week", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+            Spacer(Modifier.height(16.dp)); AttributeGraph(sessionMinutes)
+            Spacer(Modifier.height(12.dp))
+            Text("Recovery days are separate from these scheduled sessions.", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
         }
         AscendCard(Modifier.fillMaxWidth()) {
             Text("FUEL DISTRIBUTION", style = MaterialTheme.typography.labelLarge, color = EnergyCyan)
@@ -610,14 +623,15 @@ private fun PlayerReportPage(profile: OnboardingProfile) {
 }
 
 @Composable
-private fun AttributeGraph(values: List<Pair<String, Float>>) {
+private fun AttributeGraph(values: List<Pair<String, Int>>) {
+    val maximum = values.maxOfOrNull { it.second }?.coerceAtLeast(1) ?: 1
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         values.forEach { (label, value) ->
-            val animated by animateFloatAsState(value, tween(900), label = label)
+            val animated by animateFloatAsState(value.toFloat() / maximum, tween(650), label = label)
             Column {
-                Row { Text(label, style = MaterialTheme.typography.labelMedium, color = TextSecondary); Spacer(Modifier.weight(1f)); Text("${(value * 100).roundToInt()}", style = MaterialTheme.typography.labelMedium, color = EnergyCyan) }
+                Row { Text(label, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = TextSecondary); Text("$value min", style = MaterialTheme.typography.labelMedium, color = EnergyCyan) }
                 Spacer(Modifier.height(5.dp))
-                LinearProgressIndicator(progress = { animated }, Modifier.fillMaxWidth().height(7.dp), color = EnergyCyan, trackColor = Hairline, strokeCap = StrokeCap.Square)
+                LinearProgressIndicator(progress = { animated }, Modifier.fillMaxWidth().height(5.dp), color = EnergyCyan, trackColor = Hairline, strokeCap = StrokeCap.Round, drawStopIndicator = {})
             }
         }
     }
@@ -629,9 +643,12 @@ private fun MacroGraph(protein: Int, carbs: Int, fat: Int, modifier: Modifier = 
     val total = values.sum().coerceAtLeast(1f)
     Canvas(modifier.semantics { contentDescription = "Macro calorie distribution graph" }) {
         var start = -90f
+        val stroke = size.minDimension * .12f
+        val inset = stroke / 2
         listOf(EnergyCyan, EnergyAmber, EnergyEmerald).forEachIndexed { index, color ->
             val sweep = values[index] / total * 360f
-            drawArc(color, start, sweep - 3f, false, style = Stroke(size.minDimension * .16f, cap = StrokeCap.Butt)); start += sweep
+            if (sweep > 0f) drawArc(color, start, (sweep - 3f).coerceAtLeast(.1f), false, topLeft = Offset(inset, inset), size = Size(size.width - stroke, size.height - stroke), style = Stroke(stroke, cap = StrokeCap.Round))
+            start += sweep
         }
         drawCircle(EnergyViolet.copy(.18f), radius = size.minDimension * .23f)
     }
@@ -654,7 +671,11 @@ private fun SystemInitializationPage(name: String, profile: OnboardingProfile?) 
         )
     }
     var visibleLines by remember { mutableIntStateOf(0) }
-    LaunchedEffect(lines) { visibleLines = 0; lines.indices.forEach { index -> delay(if (index == 0) 420 else 680); visibleLines = index + 1 } }
+    val motion = LocalMotionEnabled.current
+    LaunchedEffect(lines, motion) {
+        if (!motion) visibleLines = lines.size
+        else { visibleLines = 0; lines.indices.forEach { index -> delay(if (index == 0) 420 else 680); visibleLines = index + 1 } }
+    }
     val completion by animateFloatAsState(visibleLines / lines.size.toFloat(), tween(520), label = "initialization_completion")
     Column(verticalArrangement = Arrangement.spacedBy(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Box(Modifier.size(136.dp), contentAlignment = Alignment.Center) {
@@ -692,8 +713,9 @@ private fun SystemInitializationPage(name: String, profile: OnboardingProfile?) 
 
 @Composable
 private fun TypewriterText(text: String, key: Any) {
+    val motion = LocalMotionEnabled.current
     var count by remember(key) { mutableIntStateOf(0) }
-    LaunchedEffect(key) { count = 0; while (count < text.length) { delay(13); count++ } }
+    LaunchedEffect(key, motion) { count = if (motion) 0 else text.length; while (count < text.length) { delay(13); count++ } }
     Text(text.take(count), style = MaterialTheme.typography.labelMedium, color = if (text.startsWith(">")) EnergyCyan else TextSecondary, modifier = Modifier.padding(vertical = 4.dp))
 }
 
@@ -716,7 +738,7 @@ private fun CloudSavePage(profile: OnboardingProfile, onComplete: (OnboardingPro
             Spacer(Modifier.height(8.dp)); Text("Health and progress data is sensitive. Google sign-in is optional; local mode keeps it only on this device.", color = TextSecondary)
         }
         SystemButton(
-            if (working) "CONTACTING GOOGLE…" else "SIGN IN WITH GOOGLE & SAVE",
+            if (working) "Contacting Google…" else if (app.cloudProgress.isConfigured) "Sign in with Google" else "Google save unavailable",
             {
                 if (activity == null) { resultMessage = "Google sign-in is unavailable in this context."; return@SystemButton }
                 working = true; resultMessage = null
@@ -726,11 +748,11 @@ private fun CloudSavePage(profile: OnboardingProfile, onComplete: (OnboardingPro
                         .onFailure { resultMessage = it.message ?: "Google sign-in failed" }
                     working = false
                 }
-            }, Modifier.fillMaxWidth(), enabled = !working,
+            }, Modifier.fillMaxWidth(), enabled = !working && app.cloudProgress.isConfigured,
         )
         SystemButton("CONTINUE IN PRIVATE OFFLINE MODE", { onComplete(profile) }, Modifier.fillMaxWidth(), secondary = true, enabled = !working)
         resultMessage?.let { Text(it, color = EnergyAmber, style = MaterialTheme.typography.bodyMedium) }
-        if (!app.cloudProgress.isConfigured) Text("Developer setup required for live Google save: add app/google-services.json and configure the OAuth web client ID resource. Offline mode is fully operational.", style = MaterialTheme.typography.labelMedium, color = TextSecondary)
+        if (!app.cloudProgress.isConfigured) Text("Google save is not configured for this build. You can save your progress privately on this device.", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
         QuoteCard("Protect the progress, but never confuse the record with the work. You are the work.")
     }
 }

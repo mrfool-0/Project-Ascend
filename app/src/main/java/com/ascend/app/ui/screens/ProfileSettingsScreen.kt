@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.ascend.app.DashboardState
+import com.ascend.app.BuildConfig
 import com.ascend.app.core.database.UnlockedAchievementEntity
 import com.ascend.app.core.database.WorkoutTemplateEntity
 import com.ascend.app.core.datastore.AppPreferences
@@ -91,29 +92,34 @@ fun ProfileSettingsScreen(
         }
 
         item {
-            AscendCard(Modifier.fillMaxWidth(), highlighted = true) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+            AscendCard(Modifier.fillMaxWidth().reveal(1), highlighted = true) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("PLAYER IDENTITY", style = MaterialTheme.typography.labelMedium, color = EnergyViolet)
+                    Spacer(Modifier.weight(1f))
+                    StatusPill("LVL ${state.level.level}", EnergyCyan)
+                }
+                Spacer(Modifier.height(24.dp))
+                Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                     Box {
-                        PlayerAvatar(preferences.profileImagePath, size = 92.dp)
-                        FilledIconButton(
+                        PlayerAvatar(preferences.profileImagePath, size = 96.dp)
+                        IconButton(
                             onClick = { imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                            modifier = Modifier.align(Alignment.BottomEnd).size(32.dp),
-                            colors = IconButtonDefaults.filledIconButtonColors(containerColor = EnergyViolet, contentColor = Color.White),
-                        ) { Icon(Icons.Outlined.Edit, "Change profile image", Modifier.size(16.dp)) }
+                            modifier = Modifier.align(Alignment.BottomEnd).size(48.dp),
+                        ) {
+                            Box(Modifier.size(32.dp).clip(CircleShape).background(EnergyViolet).border(2.dp, DeepSurface, CircleShape), contentAlignment = Alignment.Center) {
+                                Icon(Icons.Outlined.Edit, "Change profile image", Modifier.size(16.dp), tint = Void)
+                            }
+                        }
                     }
-                    Spacer(Modifier.width(16.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(profile?.displayName ?: "Player", style = MaterialTheme.typography.headlineMedium)
+                    Spacer(Modifier.height(16.dp))
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(profile?.displayName ?: "Player", style = MaterialTheme.typography.headlineLarge)
                         Text(state.level.rank.title, style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
                         Spacer(Modifier.height(8.dp))
                         StatusPill(
                             if (profile?.googleAccountEmail != null) "Cloud linked" else "Local profile",
                             if (profile?.googleAccountEmail != null) EnergyEmerald else EnergyCyan,
                         )
-                    }
-                    Column(horizontalAlignment = Alignment.End) {
-                        Text("${state.level.level}", style = MaterialTheme.typography.displayMedium, color = EnergyViolet)
-                        Text("LEVEL", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
                     }
                 }
                 imageError?.let {
@@ -135,14 +141,14 @@ fun ProfileSettingsScreen(
         }
 
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                MetricTile("Lifetime XP", "%,d".format(state.lifetimeXp), Modifier.weight(1f), EnergyCyan)
-                MetricTile("Streak", "${state.streak.current} days", Modifier.weight(1f), EnergyAmber, "Best ${state.streak.longest}")
+            Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                MetricTile("Lifetime XP", "%,d".format(state.lifetimeXp), Modifier.weight(1f).fillMaxHeight(), EnergyCyan)
+                MetricTile("Streak", "${state.streak.current} days", Modifier.weight(1f).fillMaxHeight(), EnergyAmber, "Best ${state.streak.longest}")
             }
             Spacer(Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                MetricTile("Workouts", workoutCount.toString(), Modifier.weight(1f), EnergyEmerald)
-                MetricTile("Achievements", unlocked.size.toString(), Modifier.weight(1f), EnergyViolet)
+            Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                MetricTile("Workouts", workoutCount.toString(), Modifier.weight(1f).fillMaxHeight(), EnergyEmerald)
+                MetricTile("Achievements", unlocked.size.toString(), Modifier.weight(1f).fillMaxHeight(), EnergyViolet)
             }
         }
 
@@ -198,6 +204,8 @@ fun ProfileSettingsScreen(
                 }
                 SettingsDivider()
                 SettingsInfoRow(Icons.Outlined.Straighten, "Units", profile?.unitSystem?.lowercase()?.replaceFirstChar(Char::uppercase) ?: "Metric")
+                SettingsDivider()
+                SettingsInfoRow(Icons.Outlined.Animation, "Motion", if (LocalMotionEnabled.current) "Follows Android settings" else "Reduced motion")
             }
         }
 
@@ -235,7 +243,7 @@ fun ProfileSettingsScreen(
                     onToggle = { expanded = if (expanded == "about") null else "about" },
                     icon = Icons.Outlined.Info,
                     title = "About ASCEND",
-                    subtitle = "Version 1.4 · native Android",
+                    subtitle = "Version ${BuildConfig.VERSION_NAME} · native Android",
                 ) {
                     Text(
                         "Turn your life into a quest. SYSTEM and nutrition estimates provide planning guidance and do not replace qualified medical care.",
@@ -267,12 +275,12 @@ fun ProfileSettingsScreen(
 private fun ProfileShortcut(title: String, subtitle: String, icon: ImageVector, color: Color, onClick: () -> Unit, modifier: Modifier = Modifier) {
     Surface(
         onClick = onClick,
-        modifier = modifier.height(118.dp),
+        modifier = modifier.heightIn(min = 132.dp),
         shape = MaterialTheme.shapes.large,
         color = RaisedSurface.copy(.82f),
         border = androidx.compose.foundation.BorderStroke(.75.dp, Hairline),
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.SpaceBetween) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Row {
                 Box(Modifier.size(36.dp).clip(CircleShape).background(color.copy(.12f)), contentAlignment = Alignment.Center) {
                     Icon(icon, null, Modifier.size(20.dp), tint = color)
@@ -318,8 +326,11 @@ private fun SettingsInfoRow(icon: ImageVector, title: String, value: String, acc
     Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, null, Modifier.size(21.dp), tint = accent)
         Spacer(Modifier.width(13.dp))
-        Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-        Text(value, style = MaterialTheme.typography.bodySmall, color = TextSecondary, maxLines = 1, modifier = Modifier.widthIn(max = 190.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(3.dp))
+            Text(value, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+        }
     }
 }
 

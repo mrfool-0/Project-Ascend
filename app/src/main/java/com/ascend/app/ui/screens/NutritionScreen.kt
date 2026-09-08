@@ -77,7 +77,7 @@ fun NutritionScreen(
             )
         }
         item {
-            AscendCard(Modifier.fillMaxWidth(), highlighted = true) {
+            AscendCard(Modifier.fillMaxWidth().reveal(1), highlighted = true) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("TODAY'S ENERGY", style = MaterialTheme.typography.labelMedium, color = EnergyViolet)
                     Spacer(Modifier.weight(1f))
@@ -98,6 +98,9 @@ fun NutritionScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     NutrientMini("Fiber", "${state.nutrition.fiber} g", Modifier.weight(1f))
                     NutrientMini("Sugar", "${state.nutrition.sugar} g", Modifier.weight(1f))
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     NutrientMini("Sat. fat", "${state.nutrition.saturatedFat} g", Modifier.weight(1f))
                     NutrientMini("Sodium", "${state.nutrition.sodiumMg} mg", Modifier.weight(1f))
                 }
@@ -106,7 +109,7 @@ fun NutritionScreen(
         item {
             SystemButton("Add food", { addMeal = suggestedMeal }, Modifier.fillMaxWidth())
             Spacer(Modifier.height(7.dp))
-            Text("Opens ${suggestedMeal.name.lowercase()} by default. You can change the meal before saving.", style = MaterialTheme.typography.bodySmall, color = TextTertiary)
+            Text("Adding to ${suggestedMeal.name.lowercase()}. Use a meal section below to log a different meal.", style = MaterialTheme.typography.bodySmall, color = TextTertiary)
         }
         item {
             SectionHeader("Hydration", "${state.waterMl} / ${state.target?.waterMl ?: 0} ML")

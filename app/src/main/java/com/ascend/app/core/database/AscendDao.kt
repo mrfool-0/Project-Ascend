@@ -53,6 +53,11 @@ interface AscendDao {
     @Transaction @Query("SELECT * FROM workout_exercise WHERE templateId = :templateId ORDER BY orderIndex")
     suspend fun templateExercises(templateId: String): List<WorkoutExerciseDetail>
     @Insert suspend fun insertWorkoutSession(value: WorkoutSessionEntity)
+    @Transaction
+    suspend fun insertWorkoutWithSets(session: WorkoutSessionEntity, sets: List<WorkoutSetEntity>) {
+        insertWorkoutSession(session)
+        if (sets.isNotEmpty()) upsertWorkoutSets(sets)
+    }
     @Update suspend fun updateWorkoutSession(value: WorkoutSessionEntity)
     @Query("SELECT * FROM workout_session WHERE id = :id") suspend fun workoutSession(id: String): WorkoutSessionEntity?
     @Query("SELECT * FROM workout_session WHERE localDate = :date AND completedAt IS NOT NULL LIMIT 1") suspend fun completedWorkout(date: String): WorkoutSessionEntity?

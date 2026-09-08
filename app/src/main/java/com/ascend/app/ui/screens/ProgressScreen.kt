@@ -55,13 +55,16 @@ fun ProgressScreen(state: DashboardState, templates: List<WorkoutTemplateEntity>
             )
         }
         item {
-            SingleChoiceSegmentedButtonRow(Modifier.horizontalScroll(rememberScrollState()).selectableGroup()) {
-                ProgressTab.entries.forEachIndexed { index, value ->
-                    SegmentedButton(
+            FlowRow(
+                Modifier.fillMaxWidth().selectableGroup(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                ProgressTab.entries.forEach { value ->
+                    FilterChip(
                         selected = tab == value,
                         onClick = { tab = value },
-                        shape = SegmentedButtonDefaults.itemShape(index, ProgressTab.entries.size),
-                        icon = {},
+                        shape = PillShape,
                         label = { Text(value.name.lowercase().replaceFirstChar(Char::uppercase), style = MaterialTheme.typography.labelSmall) },
                     )
                 }

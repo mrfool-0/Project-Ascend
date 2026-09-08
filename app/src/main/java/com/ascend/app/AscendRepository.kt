@@ -96,6 +96,7 @@ class AscendRepository(
     private val systemAi: SystemAiService,
 ) {
     private val dailySummaryMutex = Mutex()
+    private val workoutMutex = Mutex()
 
     fun preferencesFlow(): Flow<AppPreferences> = preferences.values
     fun foods(): Flow<List<FoodEntity>> = dao.observeFoods()
@@ -504,9 +505,9 @@ class AscendRepository(
         }
     }
 
-    suspend fun startTodayWorkout(date: LocalDate): WorkoutLaunch {
+    suspend fun startTodayWorkout(date: LocalDate): WorkoutLaunch = workoutMutex.withLock {
         dao.latestWorkout(date.toString())?.takeIf { it.completedAt == null }?.let { existing ->
-            return launchForSession(existing.id) ?: error("Unable to restore workout")
+            return@withLock launchForSession(existing.id) ?: error("Unable to restore workout")
         }
         require(dao.completedWorkout(date.toString()) == null) { "Today's primary quest is already complete" }
         val profile = dao.observeProfile().first() ?: error("Complete onboarding first")
@@ -515,14 +516,13 @@ class AscendRepository(
         val template = dao.templateForIndex(templateIndex) ?: error("Workout program is unavailable")
         val exercises = dao.templateExercises(template.id)
         val session = WorkoutSessionEntity(id(), template.id, date.toString(), now())
-        dao.insertWorkoutSession(session)
         val sets = exercises.flatMap { item ->
             (1..item.link.targetSets).map { setNumber ->
                 WorkoutSetEntity(id(), session.id, item.exercise.id, setNumber, 0.0, 0, false)
             }
         }
-        if (sets.isNotEmpty()) dao.upsertWorkoutSets(sets)
-        return WorkoutLaunch(session, template, exercises, sets)
+        dao.insertWorkoutWithSets(session, sets)
+        WorkoutLaunch(session, template, exercises, sets)
     }
 
     suspend fun launchForSession(sessionId: String): WorkoutLaunch? {
@@ -532,8 +532,7 @@ class AscendRepository(
     }
 
     suspend fun updateSet(set: WorkoutSetEntity, weightKg: Double, reps: Int, completed: Boolean): Boolean {
-        require(weightKg in 0.0..1_500.0 && reps in 0..1_000)
-        require(!completed || reps > 0) { "Enter at least one rep before completing a set" }
+        require(WorkoutInputRules.isValidSet(weightKg, reps, completed)) { "Use 0–1,500 kg and 1–1,000 reps for a completed set" }
         var isPr = false
         if (completed && !set.completed && weightKg > 0 && reps > 0) {
             val history = dao.completedSets(set.exerciseId).map { PerformanceSet(it.weightKg, it.reps) }
@@ -552,7 +551,7 @@ class AscendRepository(
     }
 
     suspend fun addWorkoutExercise(launch: WorkoutLaunch, name: String, targetSets: Int, minReps: Int, maxReps: Int) {
-        require(name.isNotBlank() && targetSets in 1..10 && minReps in 1..100 && maxReps in minReps..100)
+        require(WorkoutInputRules.isValidExercise(name, targetSets, minReps, maxReps)) { "Use a 2–80 character name, 1–10 sets and 1–100 reps" }
         val exerciseId = "custom_${id()}"
         val exercise = ExerciseEntity(exerciseId, name.trim(), "Custom", "CUSTOM")
         dao.upsertExercises(listOf(exercise))

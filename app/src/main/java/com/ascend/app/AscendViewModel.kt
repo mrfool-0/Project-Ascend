@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
 import java.time.LocalDate
 
 sealed interface UiEvent {
@@ -46,6 +47,8 @@ class AscendViewModel(application: Application, private val repository: AscendRe
     val achievements = repository.achievements().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val unlockedAchievements = repository.unlockedAchievements().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val systemMessages = repository.systemMessages().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    private val _systemThinking = MutableStateFlow(false)
+    val systemThinking = _systemThinking.asStateFlow()
 
     private val _activeWorkout = MutableStateFlow<WorkoutLaunch?>(null)
     val activeWorkout: StateFlow<WorkoutLaunch?> = _activeWorkout.asStateFlow()
@@ -92,10 +95,16 @@ class AscendViewModel(application: Application, private val repository: AscendRe
         }.onFailure { _onboardingError.value = it.safeMessage() }
     }
 
-    fun startWorkout(onReady: () -> Unit) = viewModelScope.launch {
-        runCatching { repository.startTodayWorkout(_currentDate.value) }
-            .onSuccess { _activeWorkout.value = it; onReady() }
-            .onFailure { _events.emit(UiEvent.Message(it.safeMessage())) }
+    suspend fun prepareWorkout(): Boolean {
+        return try {
+            _activeWorkout.value = repository.startTodayWorkout(_currentDate.value)
+            true
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            _events.emit(UiEvent.Message(failure.safeMessage()))
+            false
+        }
     }
 
     fun restoreWorkout(sessionId: String) = launchAction { _activeWorkout.value = repository.launchForSession(sessionId) }
@@ -147,8 +156,22 @@ class AscendViewModel(application: Application, private val repository: AscendRe
     fun logSavedMeal(mealId: String, meal: MealType) = launchAction { repository.logSavedMeal(mealId, meal, _currentDate.value); _events.emit(UiEvent.Message("Saved meal added")) }
     fun logWeight(weight: Double, note: String) = launchAction { repository.addWeight(weight, _currentDate.value, note); _events.emit(UiEvent.Message("Weight recorded • +15 XP")) }
     fun updateTargets(calories: Int, protein: Int, carbs: Int, fat: Int, water: Int) = launchAction { repository.updateNutritionTargets(calories, protein, carbs, fat, water) }
-    fun sendSystemMessage(message: String, tone: SystemTone) = launchAction { repository.sendSystemMessage(message, tone, _currentDate.value) }
-    fun clearSystemMessages() = launchAction { repository.clearSystemMessages() }
+    fun sendSystemMessage(message: String, tone: SystemTone) {
+        if (_systemThinking.value || message.isBlank()) return
+        _systemThinking.value = true
+        viewModelScope.launch {
+            try {
+                repository.sendSystemMessage(message, tone, _currentDate.value)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                _events.emit(UiEvent.Message(failure.safeMessage()))
+            } finally {
+                _systemThinking.value = false
+            }
+        }
+    }
+    fun clearSystemMessages() = launchAction { if (!_systemThinking.value) repository.clearSystemMessages() }
 
     fun updateNotification(category: String, enabled: Boolean) = launchAction {
         repository.updateNotification(category, enabled)

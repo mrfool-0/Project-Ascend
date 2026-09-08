@@ -61,7 +61,7 @@ fun HabitsScreen(
             )
         }
         item {
-            AscendCard(Modifier.fillMaxWidth(), accent = EnergyEmerald, highlighted = completed == planned && planned > 0) {
+            AscendCard(Modifier.fillMaxWidth().reveal(1), accent = EnergyEmerald, highlighted = true) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     StreakIndicator(state.streak.current, state.streak.longest, Modifier.weight(1f))
                     StatusPill(if (planned == 0) "No habits today" else "$completed of $planned", if (completed == planned && planned > 0) EnergyEmerald else EnergyCyan)
@@ -79,7 +79,7 @@ fun HabitsScreen(
             items(allHabits, key = { it.id }) { habit ->
                 val scheduled = habit.id in scheduledIds
                 val complete = habit.id in state.habitCompletions
-                HabitPanel(habit, scheduled, complete) { if (scheduled) onToggle(habit, it) }
+                Box(Modifier.animateItem()) { HabitPanel(habit, scheduled, complete) { if (scheduled) onToggle(habit, it) } }
             }
         }
     }

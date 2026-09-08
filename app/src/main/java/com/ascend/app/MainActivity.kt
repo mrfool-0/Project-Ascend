@@ -18,12 +18,17 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -40,6 +45,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -50,9 +57,11 @@ import androidx.navigation.compose.rememberNavController
 import com.ascend.app.domain.CustomPlanEngine
 import com.ascend.app.ui.components.AngularShape
 import com.ascend.app.ui.components.SystemAvatar
+import com.ascend.app.ui.components.QuestLaunchOverlay
 import com.ascend.app.ui.screens.*
 import com.ascend.app.ui.theme.*
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.DayOfWeek
 
@@ -88,6 +97,7 @@ private fun AscendRoot(viewModel: AscendViewModel) {
 }
 
 @Composable
+@OptIn(ExperimentalLayoutApi::class)
 private fun MainNavigation(viewModel: AscendViewModel, preferences: com.ascend.app.core.datastore.AppPreferences) {
     val navController = rememberNavController()
     val currentDate by viewModel.currentDate.collectAsStateWithLifecycle()
@@ -103,11 +113,17 @@ private fun MainNavigation(viewModel: AscendViewModel, preferences: com.ascend.a
     val activeWorkout by viewModel.activeWorkout.collectAsStateWithLifecycle()
     val activeSets by viewModel.activeSets.collectAsStateWithLifecycle()
     val systemMessages by viewModel.systemMessages.collectAsStateWithLifecycle()
+    val systemThinking by viewModel.systemThinking.collectAsStateWithLifecycle()
     val backStack by navController.currentBackStackEntryAsState()
     val route = backStack?.destination?.route
     val snackbarHost = remember { SnackbarHostState() }
     var overlay by remember { mutableStateOf<UiEvent?>(null) }
     val haptic = LocalHapticFeedback.current
+    val scope = rememberCoroutineScope()
+    val motion = LocalMotionEnabled.current
+    var questLaunching by remember { mutableStateOf(false) }
+    var questPrepared by remember { mutableStateOf(false) }
+    var questAnimationComplete by remember { mutableStateOf(false) }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     LaunchedEffect(Unit) {
@@ -142,8 +158,21 @@ private fun MainNavigation(viewModel: AscendViewModel, preferences: com.ascend.a
         }
     }
     fun startWorkout() {
+        if (questLaunching || todayTemplate == null) return
+        questLaunching = true
+        questPrepared = false
+        questAnimationComplete = false
         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-        viewModel.startWorkout { navController.navigate("workout") { launchSingleTop = true } }
+        scope.launch {
+            if (viewModel.prepareWorkout()) questPrepared = true
+            else questLaunching = false
+        }
+    }
+    LaunchedEffect(questPrepared, questAnimationComplete) {
+        if (questLaunching && questPrepared && questAnimationComplete) {
+            navController.navigate("workout") { launchSingleTop = true }
+            questLaunching = false
+        }
     }
 
     Box(Modifier.fillMaxSize().background(Void)) {
@@ -169,7 +198,7 @@ private fun MainNavigation(viewModel: AscendViewModel, preferences: com.ascend.a
             containerColor = Color.Transparent,
             snackbarHost = { SnackbarHost(snackbarHost) },
             bottomBar = {
-                if (route in MainDestination.entries.map { it.route }) AscendBottomBar(route) { destination ->
+                if (!WindowInsets.isImeVisible && route in MainDestination.entries.map { it.route }) AscendBottomBar(route) { destination ->
                     if (destination.route != route) {
                         if (destination == MainDestination.HOME) {
                             // Home is the root destination. Restoring its saved stack can reopen the
@@ -189,11 +218,11 @@ private fun MainNavigation(viewModel: AscendViewModel, preferences: com.ascend.a
             NavHost(
                 navController = navController,
                 startDestination = MainDestination.HOME.route,
-                modifier = Modifier.padding(padding),
-                enterTransition = { fadeIn(tween(240)) + scaleIn(tween(300), initialScale = .985f) },
-                exitTransition = { fadeOut(tween(150)) + scaleOut(tween(180), targetScale = .99f) },
-                popEnterTransition = { fadeIn(tween(240)) + scaleIn(tween(300), initialScale = .985f) },
-                popExitTransition = { fadeOut(tween(150)) + scaleOut(tween(180), targetScale = .99f) },
+                modifier = Modifier.padding(padding).consumeWindowInsets(padding).imePadding(),
+                enterTransition = { fadeIn(tween(if (motion) 240 else 0, delayMillis = if (motion) 90 else 0)) + slideInVertically(tween(if (motion) AscendMotion.Enter else 0)) { it / 35 } },
+                exitTransition = { fadeOut(tween(if (motion) 90 else 0)) },
+                popEnterTransition = { fadeIn(tween(if (motion) 240 else 0, delayMillis = if (motion) 90 else 0)) },
+                popExitTransition = { fadeOut(tween(if (motion) 90 else 0)) },
             ) {
                 composable(MainDestination.HOME.route) {
                     HomeScreen(
@@ -213,7 +242,7 @@ private fun MainNavigation(viewModel: AscendViewModel, preferences: com.ascend.a
                 }
                 composable("progress") { ProgressScreen(state, templates, { navController.popBackStack() }, viewModel::logWeight) }
                 composable(MainDestination.HABITS.route) { HabitsScreen(state, habits, viewModel::toggleHabit, viewModel::createHabit) }
-                composable(MainDestination.SYSTEM.route) { SystemScreen(state, systemMessages, viewModel::sendSystemMessage, viewModel::clearSystemMessages) }
+                composable(MainDestination.SYSTEM.route) { SystemScreen(state, systemMessages, systemThinking, viewModel::sendSystemMessage, viewModel::clearSystemMessages) }
                 composable("workout") {
                     WorkoutScreen(activeWorkout, activeSets, { navController.popBackStack() }, viewModel::updateSet, viewModel::addWorkoutExercise, viewModel::removeWorkoutExercise) {
                         viewModel.completeWorkout { navController.popBackStack(MainDestination.HOME.route, false) }
@@ -229,13 +258,14 @@ private fun MainNavigation(viewModel: AscendViewModel, preferences: com.ascend.a
             }
         }
         EventOverlay(overlay)
+        if (questLaunching) QuestLaunchOverlay(todayTemplate?.name ?: "Your protocol") { questAnimationComplete = true }
     }
 }
 
 @Composable
 private fun AscendBottomBar(currentRoute: String?, onSelect: (MainDestination) -> Unit) {
     Box(
-        Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 14.dp, vertical = 8.dp),
+        Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 24.dp, vertical = 8.dp),
     ) {
         Row(
             Modifier
@@ -244,21 +274,24 @@ private fun AscendBottomBar(currentRoute: String?, onSelect: (MainDestination) -
                 .clip(RoundedCornerShape(25.dp))
                 .background(GlassSurface)
                 .border(.75.dp, Hairline.copy(.9f), RoundedCornerShape(25.dp))
-                .padding(6.dp),
+                .padding(6.dp).selectableGroup(),
+                // Expose tab selection to TalkBack, keyboard and switch-access users.
+                // The visual highlight and semantic selected state share the same source.
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             MainDestination.entries.forEach { destination ->
                 val selected = currentRoute == destination.route
                 val scale by animateFloatAsState(if (selected) 1f else .94f, spring(stiffness = 500f, dampingRatio = .78f), label = "${destination.route}_scale")
-                val tint = if (selected) EnergyCyan else TextTertiary
+                val tint by animateColorAsState(if (selected) EnergyCyan else TextTertiary, tween(180), label = "tab tint")
+                val background by animateColorAsState(if (selected) EnergyViolet.copy(.15f) else Color.Transparent, tween(220), label = "tab surface")
                 Column(
                     Modifier
                         .weight(1f)
                         .height(58.dp)
                         .clip(RoundedCornerShape(19.dp))
-                        .background(if (selected) EnergyViolet.copy(alpha = .13f) else Color.Transparent)
-                        .clickable { onSelect(destination) }
-                        .scale(scale),
+                        .background(background)
+                        .selectable(selected = selected, role = Role.Tab) { onSelect(destination) }
+                        .graphicsLayer { scaleX = scale; scaleY = scale },
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,
                 ) {

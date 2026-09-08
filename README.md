@@ -10,7 +10,8 @@ ASCEND is an offline-first native Android health, training, nutrition, habit, an
 - Mifflin–St Jeor calorie estimation with transparent maintenance calculation; bounded calorie, macro, and water inputs; smart milliliter/liter formatting; and live macro-energy feedback
 - Level 1–100 progression, eleven original ranks, a durable XP ledger, duplicate-source protection, streaks and achievements
 - A custom 2–6 day program generated from focus, experience, equipment, schedule, reported limitations, and the selected Full Body, Push/Pull/Legs, Upper/Lower, or Automatic architecture; frequency-aware working sets and rotating A/B/C movement patterns keep weekly volume balanced instead of repeating the same session
-- Clean, animation-free workout entry and logging for every set, weight and rep; a background-accurate rest timer; completion rewards; progression suggestions; and PR detection
+- A finite signal-lock quest-entry glitch, spring press feedback, staggered reveals and smooth screen transitions. Decorative motion and robotic typing respect Android's Remove animations setting. Workout demonstrations remain animation-free.
+- Validated set/weight/rep logging, atomic session creation, duplicate-launch protection, a background-accurate rest timer with cancel controls, confirmed exercise removal, completion rewards, progression suggestions and PR detection
 - A searchable offline catalog of global everyday foods—including common grains, fruit, vegetables, dairy, pulses, beef, poultry, seafood, and prepared meals—plus manual custom-food creation, meal logging, scaled servings, saved meals, and hydration
 - Checkbox, number, duration and avoidance habit models with configurable difficulty and a 75 XP daily anti-farming cap
 - Body-weight logging, trend-focused charting, 7-day averages, consistency heatmap, training/nutrition summaries and ASCEND game scores
@@ -54,6 +55,8 @@ Command line:
 ```
 
 The debug APK is generated at `app/build/outputs/apk/debug/app-debug.apk`.
+
+Version 1.7's design decisions, research sources, regression checks and known limits are recorded in [the interface audit](docs/PREMIUM_UI_AUDIT.md).
 
 ## Architecture
 
@@ -120,6 +123,9 @@ Local unit tests cover:
 - balanced Full Body movement coverage, workout variation, and frequency-aware volume
 - typo-tolerant SYSTEM intent detection, contextual follow-ups, and exercise-form answers
 - safe natural-language parsing for habit and custom-quest creation commands
+- workout input bounds, finite numeric values and valid custom-exercise ranges
+
+Instrumented Compose/Room tests additionally cover completed-set locking, confirmed exercise removal, reduced-motion quest entry and atomic session creation/rollback. See the interface audit for commands and the tested device scope.
 
 ## Privacy and safety
 

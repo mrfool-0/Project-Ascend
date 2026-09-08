@@ -25,6 +25,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
@@ -43,15 +45,16 @@ import java.time.LocalDate
 fun SystemScreen(
     state: DashboardState,
     messages: List<SystemMessageEntity>,
+    isThinking: Boolean,
     onSend: (String, SystemTone) -> Unit,
     onClear: () -> Unit,
 ) {
-    var input by remember { mutableStateOf("") }
+    var input by rememberSaveable { mutableStateOf("") }
     var toneName by rememberSaveable { mutableStateOf(SystemTone.DIRECT.name) }
     var showInfo by remember { mutableStateOf(false) }
+    var showClear by remember { mutableStateOf(false) }
     val tone = SystemTone.valueOf(toneName)
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
-    val isThinking = messages.lastOrNull()?.role == "PLAYER"
     val newestSystemId = messages.lastOrNull { it.role != "PLAYER" }?.id
     var lastRenderedSystemId by rememberSaveable { mutableStateOf(newestSystemId) }
 
@@ -67,17 +70,17 @@ fun SystemScreen(
         if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex + if (isThinking) 1 else 0)
     }
 
-    Column(Modifier.fillMaxSize().imePadding()) {
+    Column(Modifier.fillMaxSize()) {
         Row(Modifier.padding(horizontal = 24.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             SystemAvatar(size = 46.dp)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text("SYSTEM", style = MaterialTheme.typography.headlineMedium)
                 Spacer(Modifier.height(3.dp))
-                StatusPill(if (isThinking) "Thinking" else "Context online", if (isThinking) EnergyAmber else EnergyEmerald)
+                Text(if (isThinking) "Analyzing your next move" else "Your tactical performance partner", style = MaterialTheme.typography.bodySmall, color = if (isThinking) EnergyAmber else TextSecondary)
             }
             IconButton(onClick = { showInfo = true }) { Icon(Icons.Outlined.Info, "About SYSTEM", tint = TextSecondary) }
-            IconButton(onClick = onClear) { Icon(Icons.Outlined.DeleteOutline, "Clear conversation", tint = TextSecondary) }
+            IconButton(onClick = { showClear = true }, enabled = messages.isNotEmpty() && !isThinking) { Icon(Icons.Outlined.DeleteOutline, "Clear conversation", tint = TextSecondary) }
         }
 
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 24.dp)) {
@@ -114,22 +117,27 @@ fun SystemScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             if (messages.isEmpty()) item {
-                AscendCard(Modifier.fillMaxWidth(), accent = EnergyCyan, highlighted = true) {
-                    Text("Tactical system, ready", style = MaterialTheme.typography.titleLarge)
+                AscendCard(Modifier.fillMaxWidth().reveal(1), accent = EnergyCyan, highlighted = true) {
+                    StatusPill("Ready when you are", EnergyCyan)
+                    Spacer(Modifier.height(18.dp))
+                    Text("Clear direction.\nReal progress.", style = MaterialTheme.typography.headlineLarge)
                     Spacer(Modifier.height(7.dp))
                     Text(
                         "Ask about your plan, training, food, recovery or consistency. SYSTEM can also create a habit or daily quest when you explicitly ask.",
                         color = TextSecondary,
                     )
                     Spacer(Modifier.height(14.dp))
-                    Text("“${MotivationLibrary.quoteFor(LocalDate.now())}”", style = MaterialTheme.typography.bodyLarge, color = EnergyCyan)
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        MetricTile("Energy", "${state.target?.calories ?: 0} kcal", Modifier.weight(1f))
+                        MetricTile("Protein", "${state.target?.proteinGrams ?: 0} g", Modifier.weight(1f), EnergyCyan)
+                    }
                 }
             }
             items(messages, key = { it.id }) { message ->
                 val player = message.role == "PLAYER"
                 val cleaned = message.message.toDisplayText()
                 val shouldAnimate = !player && message.id == newestSystemId && message.id != lastRenderedSystemId
-                MessageBubble(message.role, cleaned, player, shouldAnimate) { lastRenderedSystemId = message.id }
+                Box(Modifier.animateItem()) { MessageBubble(message.role, cleaned, player, shouldAnimate) { lastRenderedSystemId = message.id } }
             }
             if (isThinking) item(key = "system_processing") { SystemProcessingBubble() }
         }
@@ -163,6 +171,14 @@ fun SystemScreen(
             }
         }
     }
+
+    if (showClear) AlertDialog(
+        onDismissRequest = { showClear = false },
+        title = { Text("Clear this conversation?") },
+        text = { Text("Chat history will be deleted from this device. Your habits, quests and workout progress will stay.") },
+        confirmButton = { TextButton(onClick = { onClear(); showClear = false }, enabled = !isThinking) { Text("Clear chat", color = EnergyCrimson) } },
+        dismissButton = { TextButton(onClick = { showClear = false }) { Text("Keep chat") } },
+    )
 
     if (showInfo) {
         ModalBottomSheet(onDismissRequest = { showInfo = false }, containerColor = DeepSurface) {
@@ -242,11 +258,13 @@ private fun MessageBubble(role: String, text: String, player: Boolean, animate: 
 
 @Composable
 private fun RobotTypewriterText(text: String, animate: Boolean, onComplete: () -> Unit) {
-    var visibleCharacters by remember(text, animate) { mutableIntStateOf(if (animate) 0 else text.length) }
+    val motion = LocalMotionEnabled.current
+    val typing = animate && motion
+    var visibleCharacters by remember(text, typing) { mutableIntStateOf(if (typing) 0 else text.length) }
     val currentOnComplete by rememberUpdatedState(onComplete)
 
-    LaunchedEffect(text, animate) {
-        if (!animate) return@LaunchedEffect
+    LaunchedEffect(text, typing) {
+        if (!typing) { if (animate) currentOnComplete(); return@LaunchedEffect }
         delay(160)
         while (visibleCharacters < text.length) {
             visibleCharacters = (visibleCharacters + if (text.length > 360) 3 else 2).coerceAtMost(text.length)
@@ -255,16 +273,19 @@ private fun RobotTypewriterText(text: String, animate: Boolean, onComplete: () -
         currentOnComplete()
     }
 
-    Row(Modifier.semantics { contentDescription = text }) {
-        Text(text.take(visibleCharacters), style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f, fill = false))
-        if (animate && visibleCharacters < text.length) Text("▍", style = MaterialTheme.typography.bodyLarge, color = EnergyCyan)
+    // Reserve the final text bounds so typing never pushes the newest reply under the composer.
+    Box(Modifier.clearAndSetSemantics { contentDescription = text }) {
+        Text(text, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.alpha(0f))
+        Text(text.take(visibleCharacters) + if (typing && visibleCharacters < text.length) "▍" else "", style = MaterialTheme.typography.bodyLarge)
     }
 }
 
 @Composable
 private fun SystemProcessingBubble() {
+    val motion = LocalMotionEnabled.current
     var frame by remember { mutableIntStateOf(0) }
-    LaunchedEffect(Unit) {
+    LaunchedEffect(motion) {
+        if (!motion) return@LaunchedEffect
         while (true) {
             delay(320)
             frame = (frame + 1) % 4

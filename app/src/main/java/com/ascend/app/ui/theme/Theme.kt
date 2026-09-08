@@ -7,12 +7,14 @@ import androidx.compose.material3.Shapes
 import androidx.compose.material3.Surface
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ascend.app.R
@@ -29,27 +31,21 @@ val EnergyAmber = Color(0xFFFFC35A)
 val EnergyCrimson = Color(0xFFFF6584)
 val TextPrimary = Color(0xFFF4F6FA)
 val TextSecondary = Color(0xFF9AA6B8)
-val TextTertiary = Color(0xFF68758A)
+val TextTertiary = Color(0xFF8793A6)
 val Hairline = Color(0xFF252C39)
 
-val Manrope = FontFamily(
-    Font(R.font.manrope_variable, FontWeight.Normal),
-    Font(R.font.manrope_variable, FontWeight.Medium),
-    Font(R.font.manrope_variable, FontWeight.SemiBold),
-    Font(R.font.manrope_variable, FontWeight.Bold),
-    Font(R.font.manrope_variable, FontWeight.ExtraBold),
+// Matching a weight does not configure the wght axis of a variable font.
+private fun variableFamily(resource: Int) = FontFamily(
+    listOf(FontWeight.Normal, FontWeight.Medium, FontWeight.SemiBold, FontWeight.Bold, FontWeight.ExtraBold).map { weight ->
+        Font(resource, weight = weight, variationSettings = FontVariation.Settings(FontVariation.weight(weight.weight)))
+    },
 )
-
-val SystemMono = FontFamily(
-    Font(R.font.jetbrains_mono_variable, FontWeight.Normal),
-    Font(R.font.jetbrains_mono_variable, FontWeight.Medium),
-    Font(R.font.jetbrains_mono_variable, FontWeight.SemiBold),
-    Font(R.font.jetbrains_mono_variable, FontWeight.Bold),
-)
+val Manrope = variableFamily(R.font.manrope_variable)
+val SystemMono = variableFamily(R.font.jetbrains_mono_variable)
 
 private val AscendColors = darkColorScheme(
     primary = EnergyViolet,
-    onPrimary = Color.White,
+    onPrimary = Void,
     primaryContainer = Color(0xFF292344),
     onPrimaryContainer = Color(0xFFE8E3FF),
     secondary = EnergyCyan,
@@ -96,11 +92,14 @@ private val AscendShapes = Shapes(
 
 @Composable
 fun AscendTheme(content: @Composable () -> Unit) {
-    MaterialTheme(
-        colorScheme = AscendColors,
-        typography = AscendTypography,
-        shapes = AscendShapes,
-    ) {
-        Surface(Modifier.fillMaxSize(), color = Void, contentColor = TextPrimary, content = content)
+    val motion = rememberSystemMotionEnabled()
+    CompositionLocalProvider(LocalMotionEnabled provides motion) {
+        MaterialTheme(
+            colorScheme = AscendColors,
+            typography = AscendTypography,
+            shapes = AscendShapes,
+        ) {
+            Surface(Modifier.fillMaxSize(), color = Void, contentColor = TextPrimary, content = content)
+        }
     }
 }

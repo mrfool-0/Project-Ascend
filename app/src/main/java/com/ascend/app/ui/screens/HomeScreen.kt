@@ -13,6 +13,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.border
+import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.FitnessCenter
@@ -30,6 +32,8 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.dp
 import com.ascend.app.DashboardState
 import com.ascend.app.core.database.HabitEntity
@@ -39,6 +43,7 @@ import com.ascend.app.ui.components.*
 import com.ascend.app.ui.theme.*
 import java.time.LocalDate
 import java.time.LocalTime
+import java.time.DayOfWeek
 import java.time.format.DateTimeFormatter
 import kotlin.math.abs
 
@@ -62,6 +67,7 @@ fun HomeScreen(
         else -> "Good evening"
     }
     val workoutDone = state.workoutHistory.any { it.localDate == currentDate.toString() && it.completedAt != null }
+    val workoutStarted = state.workoutHistory.any { it.localDate == currentDate.toString() && it.completedAt == null }
     val habitsDone = state.habitCompletions.size
     val habitTotal = state.habits.size
 
@@ -71,13 +77,12 @@ fun HomeScreen(
         verticalArrangement = Arrangement.spacedBy(22.dp),
     ) {
         item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.reveal(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    StatusPill("System online", EnergyEmerald)
-                    Spacer(Modifier.height(10.dp))
+                    Text(currentDate.format(DateTimeFormatter.ofPattern("EEE, d MMM")).uppercase(), style = MaterialTheme.typography.labelMedium, color = EnergyCyan)
+                    Spacer(Modifier.height(12.dp))
                     Text(greeting, style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
-                    Text(state.profile?.displayName ?: "Player", style = MaterialTheme.typography.headlineLarge)
-                    Text(currentDate.format(DateTimeFormatter.ofPattern("EEEE, d MMM")), style = MaterialTheme.typography.labelMedium, color = TextTertiary)
+                    Text(state.profile?.displayName ?: "Player", style = MaterialTheme.typography.displaySmall)
                 }
                 IconButton(onClick = onOpenProfile, modifier = Modifier.size(60.dp)) {
                     PlayerAvatar(profileImagePath, size = 52.dp)
@@ -86,7 +91,7 @@ fun HomeScreen(
         }
 
         item {
-            TodayQuestCard(todayTemplate, workoutDone, onStartWorkout)
+            TodayQuestCard(todayTemplate, workoutDone, workoutStarted, state.profile?.workoutDays.orEmpty(), currentDate, onStartWorkout)
         }
 
         item {
@@ -104,11 +109,11 @@ fun HomeScreen(
                 )
                 SnapshotTile(
                     "Hydration",
-                    "${state.waterMl / 1000f}".trimEnd('0').trimEnd('.'),
+                    "${state.waterMl / 1000f}".trimEnd('0').trimEnd('.') + " L",
                     "of ${((state.target?.waterMl ?: 0) / 1000f)} L",
                     Icons.Outlined.LocalDrink,
                     EnergyCyan,
-                    { onAddWater(250) },
+                    onOpenNutrition,
                     Modifier.weight(1f),
                 )
                 SnapshotTile(
@@ -124,7 +129,7 @@ fun HomeScreen(
         }
 
         item {
-            AscendCard(Modifier.fillMaxWidth(), accent = EnergyViolet, onClick = onOpenProgress) {
+            AscendCard(Modifier.fillMaxWidth().reveal(3), accent = EnergyViolet, onClick = onOpenProgress) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("LEVEL ${state.level.level}", style = MaterialTheme.typography.labelMedium, color = EnergyViolet)
@@ -199,20 +204,20 @@ fun HomeScreen(
 }
 
 @Composable
-private fun TodayQuestCard(template: WorkoutTemplateEntity?, complete: Boolean, onStart: () -> Unit) {
+private fun TodayQuestCard(template: WorkoutTemplateEntity?, complete: Boolean, started: Boolean, days: String, date: LocalDate, onStart: () -> Unit) {
     val accent by animateColorAsState(if (complete) EnergyEmerald else EnergyViolet, tween(350), label = "quest accent")
-    AscendCard(Modifier.fillMaxWidth(), accent = accent, highlighted = true) {
+    AscendCard(Modifier.fillMaxWidth().reveal(1), accent = accent, highlighted = true) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            StatusPill(if (complete) "Completed" else "Primary quest", accent)
+            StatusPill(if (complete) "Completed" else if (started) "In progress" else "Today's quest", accent)
             Spacer(Modifier.weight(1f))
             Text("+${template?.rewardXp ?: 0} XP", style = MaterialTheme.typography.labelMedium, color = if (complete) TextTertiary else EnergyCyan)
         }
-        Spacer(Modifier.height(17.dp))
+        Spacer(Modifier.height(22.dp))
         AnimatedContent(
-            targetState = template?.name ?: "Preparing your protocol",
+            targetState = template?.name?.split(' ')?.joinToString(" ") { it.lowercase().replaceFirstChar(Char::uppercase) } ?: "Preparing your protocol",
             transitionSpec = { fadeIn(tween(250)) togetherWith fadeOut(tween(150)) },
             label = "quest title",
-        ) { title -> Text(title, style = MaterialTheme.typography.headlineLarge) }
+        ) { title -> Text(title, style = MaterialTheme.typography.displaySmall) }
         Spacer(Modifier.height(7.dp))
         Text(
             if (template?.isRecovery == true) "Recovery · ${template.estimatedMinutes} min" else "Strength · ${template?.estimatedMinutes ?: 0} min",
@@ -220,7 +225,31 @@ private fun TodayQuestCard(template: WorkoutTemplateEntity?, complete: Boolean, 
             color = TextSecondary,
         )
         Spacer(Modifier.height(18.dp))
-        SystemButton(if (complete) "Quest completed" else "Enter quest", onStart, Modifier.fillMaxWidth(), enabled = !complete)
+        WeekSchedule(days, date)
+        Spacer(Modifier.height(20.dp))
+        SystemButton(if (complete) "Quest completed" else if (started) "Resume quest" else "Enter quest", onStart, Modifier.fillMaxWidth(), enabled = !complete && template != null)
+    }
+}
+
+@Composable
+fun WeekSchedule(days: String, date: LocalDate, modifier: Modifier = Modifier) {
+    val trainingDays = days.split(',').mapNotNull(String::toIntOrNull).toSet()
+    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        DayOfWeek.entries.forEach { day ->
+            val today = day == date.dayOfWeek
+            val training = day.value in trainingDays
+            Column(
+                Modifier.weight(1f).clip(CompactShape).background(if (today) EnergyViolet.copy(.15f) else Void.copy(.28f))
+                    .border(.75.dp, if (today) EnergyViolet.copy(.5f) else Hairline.copy(.45f), CompactShape)
+                    .clearAndSetSemantics { contentDescription = "${day.name.lowercase()}: ${if (training) "training" else "recovery"}${if (today) ", today" else ""}" }
+                    .padding(vertical = 10.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(day.name.take(1), style = MaterialTheme.typography.labelSmall, color = if (today) TextPrimary else TextSecondary)
+                Spacer(Modifier.height(8.dp))
+                Box(Modifier.size(4.dp).background(if (training) EnergyViolet else TextTertiary.copy(.45f), CircleShape))
+            }
+        }
     }
 }
 
@@ -236,17 +265,17 @@ private fun SnapshotTile(
 ) {
     Surface(
         onClick = onClick,
-        modifier = modifier.height(116.dp),
+        modifier = modifier.heightIn(min = 126.dp),
         shape = MaterialTheme.shapes.medium,
         color = RaisedSurface.copy(alpha = .78f),
         border = androidx.compose.foundation.BorderStroke(.75.dp, Hairline),
     ) {
-        Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.SpaceBetween) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Icon(icon, null, Modifier.size(20.dp), tint = color)
             Column {
-                Text(value, style = MaterialTheme.typography.titleLarge)
+                Text(value, style = MaterialTheme.typography.headlineSmall)
                 Text(label, style = MaterialTheme.typography.labelSmall, color = color)
-                Text(supporting, style = MaterialTheme.typography.bodySmall, color = TextTertiary, maxLines = 1)
+                Text(supporting, style = MaterialTheme.typography.bodySmall, color = TextTertiary)
             }
         }
     }

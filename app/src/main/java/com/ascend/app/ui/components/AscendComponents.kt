@@ -8,12 +8,15 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -25,6 +28,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
@@ -75,13 +79,13 @@ fun PlayerAvatar(imagePath: String?, modifier: Modifier = Modifier, size: Dp = 7
                 model = File(imagePath),
                 contentDescription = "Player profile image",
                 contentScale = ContentScale.Crop,
-                placeholder = painterResource(R.drawable.ic_ascend),
-                error = painterResource(R.drawable.ic_ascend),
+                placeholder = painterResource(R.drawable.ic_ascend_mark),
+                error = painterResource(R.drawable.ic_ascend_mark),
                 modifier = Modifier.fillMaxSize(),
             )
         } else {
             Image(
-                painter = painterResource(R.drawable.ic_ascend),
+                painter = painterResource(R.drawable.ic_ascend_mark),
                 contentDescription = "Default player profile image",
                 modifier = Modifier.fillMaxSize(.62f),
             )
@@ -98,11 +102,16 @@ fun AscendCard(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val shape = MaterialTheme.shapes.large
+    val source = remember { MutableInteractionSource() }
+    val pressed by source.collectIsPressedAsState()
+    val motion = LocalMotionEnabled.current
+    val scale = animateFloatAsState(if (pressed && motion) .985f else 1f, AscendMotion.spatial(), label = "card press")
     val interaction = if (onClick != null) {
-        Modifier.clickable(onClick = onClick)
+        Modifier.clickable(interactionSource = source, indication = ripple(), onClick = onClick)
     } else Modifier
     Column(
         modifier
+            .graphicsLayer { scaleX = scale.value; scaleY = scale.value }
             .shadow(
                 elevation = if (highlighted) 12.dp else 3.dp,
                 shape = shape,
@@ -110,11 +119,6 @@ fun AscendCard(
                 spotColor = accent.copy(alpha = if (highlighted) .18f else .04f),
             )
             .clip(shape)
-            .drawBehind {
-                if (highlighted) {
-                    drawCircle(accent.copy(alpha = .11f), radius = size.maxDimension * .72f, center = Offset(size.width * .9f, 0f))
-                }
-            }
             .background(
                 Brush.linearGradient(
                     colors = listOf(
@@ -123,9 +127,14 @@ fun AscendCard(
                     ),
                 ),
             )
-            .border(.75.dp, if (highlighted) accent.copy(.42f) else Hairline.copy(.82f), shape)
+            .drawBehind {
+                if (highlighted) {
+                    drawRect(Brush.radialGradient(listOf(accent.copy(.12f), Color.Transparent), center = Offset(size.width, 0f), radius = size.width * .95f))
+                }
+            }
+            .border(.75.dp, if (highlighted) accent.copy(.3f) else Hairline.copy(.82f), shape)
             .then(interaction)
-            .padding(18.dp),
+            .padding(20.dp),
         content = content,
     )
 }
@@ -134,22 +143,27 @@ fun AscendCard(
 @SuppressLint("ModifierParameter")
 fun SectionHeader(title: String, meta: String? = null, modifier: Modifier = Modifier) {
     Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(title, style = MaterialTheme.typography.titleMedium, color = TextPrimary)
-        Spacer(Modifier.weight(1f))
+        Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, color = TextPrimary)
+        Spacer(Modifier.width(8.dp))
         if (meta != null) StatusPill(meta, EnergyCyan)
     }
 }
 
 @Composable
 fun SystemButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, secondary: Boolean = false) {
+    val source = remember { MutableInteractionSource() }
+    val pressed by source.collectIsPressedAsState()
+    val motion = LocalMotionEnabled.current
+    val scale = animateFloatAsState(if (pressed && motion) .97f else 1f, AscendMotion.spatial(), label = "button press")
     Button(
         onClick = onClick,
-        modifier = modifier.heightIn(min = 52.dp),
+        modifier = modifier.heightIn(min = 54.dp).graphicsLayer { scaleX = scale.value; scaleY = scale.value },
+        interactionSource = source,
         enabled = enabled,
         shape = RoundedCornerShape(15.dp),
         colors = ButtonDefaults.buttonColors(
             containerColor = if (secondary) RaisedSurface else EnergyViolet,
-            contentColor = TextPrimary,
+            contentColor = if (secondary) TextPrimary else Void,
             disabledContainerColor = Hairline,
         ),
         border = if (secondary) androidx.compose.foundation.BorderStroke(.75.dp, Hairline) else null,
@@ -169,7 +183,7 @@ fun StatusPill(text: String, color: Color, modifier: Modifier = Modifier) {
     ) {
         Box(Modifier.size(5.dp).background(color, CircleShape))
         Spacer(Modifier.width(6.dp))
-        Text(text.uppercase(), style = MaterialTheme.typography.labelSmall, color = color, maxLines = 1)
+        Text(text.uppercase(), style = MaterialTheme.typography.labelSmall, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -281,6 +295,7 @@ fun MacroProgressBar(label: String, current: Int, target: Int, unit: String, col
             color = color,
             trackColor = Hairline,
             strokeCap = StrokeCap.Round,
+            drawStopIndicator = {},
         )
     }
 }
