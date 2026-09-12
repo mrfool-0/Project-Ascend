@@ -47,6 +47,7 @@ import com.ascend.app.ui.components.AscendCard
 import com.ascend.app.ui.components.SystemButton
 import com.ascend.app.ui.theme.*
 import com.ascend.app.ui.components.StatusPill
+import com.ascend.app.ui.components.FocusSelector
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.DayOfWeek
@@ -71,7 +72,8 @@ fun OnboardingScreen(externalError: String? = null, onComplete: (OnboardingProfi
     var equipment by rememberSaveable { mutableStateOf(Equipment.FULL_GYM) }
     var diet by rememberSaveable { mutableStateOf(DietPreference.NON_VEGETARIAN) }
     var trainingTime by rememberSaveable { mutableStateOf(TrainingTime.EVENING) }
-    var focusNames by rememberSaveable { mutableStateOf(setOf(FocusArea.CORE.name, FocusArea.LEGS.name)) }
+    var focusNames by rememberSaveable { mutableStateOf(setOf(FocusArea.FULL_BODY.name)) }
+    var sessionMinutes by rememberSaveable { mutableIntStateOf(45) }
     var injuryNames by rememberSaveable { mutableStateOf(setOf(InjuryArea.NONE.name)) }
     var injuryNotes by rememberSaveable { mutableStateOf("") }
     var frequency by rememberSaveable { mutableIntStateOf(3) }
@@ -126,6 +128,7 @@ fun OnboardingScreen(externalError: String? = null, onComplete: (OnboardingProfi
             sex = sex, units = units, objective = objective, activity = activity,
             experience = experience, equipment = equipment, diet = diet, trainingTime = trainingTime,
             focusAreas = focusNames.map(FocusArea::valueOf).toSet(),
+            sessionMinutes = sessionMinutes,
             injuries = injuryNames.map(InjuryArea::valueOf).toSet(), injuryNotes = injuryNotes.trim(),
             workoutFrequency = frequency, trainingSplit = trainingSplit,
             workoutDays = workoutDayValues.map(DayOfWeek::of).toSet(),
@@ -223,8 +226,9 @@ fun OnboardingScreen(externalError: String? = null, onComplete: (OnboardingProfi
                         0 -> InitializationIntro()
                         1 -> ProfilePage(name, { name = it }, ageText, { ageText = it }, heightText, { heightText = it }, weightText, { weightText = it }, targetWeightText, { targetWeightText = it }, sex, { sex = it }, units, { units = it })
                         2 -> ChoicePage(Objective.entries, objective, { objective = it }, objectiveCopy)
-                        3 -> MultiChoicePage(FocusArea.entries, focusNames, 4) { updated ->
-                            if (FocusArea.FULL_BODY.name in updated && FocusArea.FULL_BODY.name !in focusNames) {
+                        3 -> FocusSelector(focusNames.map(FocusArea::valueOf).toSet()) { selected ->
+                            val updated = selected.map { it.name }.toSet()
+                            if (FocusArea.FULL_BODY.name in updated) {
                                 trainingSplit = TrainingSplit.FULL_BODY
                             }
                             focusNames = updated
@@ -232,7 +236,15 @@ fun OnboardingScreen(externalError: String? = null, onComplete: (OnboardingProfi
                         4 -> InjuryPage(injuryNames, { injuryNames = it }, injuryNotes, { injuryNotes = it })
                         5 -> ChoicePage(ActivityLevel.entries, activity, { activity = it }, activityCopy)
                         6 -> ChoicePage(Experience.entries, experience, { experience = it }) { experienceCopy(it) }
-                        7 -> ChoicePage(Equipment.entries, equipment, { equipment = it }) { equipmentCopy(it) }
+                        7 -> Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            ChoicePage(Equipment.entries, equipment, { equipment = it }) { equipmentCopy(it) }
+                            Text("How much time can you give each session?", style = MaterialTheme.typography.titleMedium)
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf(30, 45, 60, 75).forEach { minutes ->
+                                    FilterChip(selected = sessionMinutes == minutes, onClick = { sessionMinutes = minutes }, label = { Text("$minutes min") })
+                                }
+                            }
+                        }
                         8 -> FrequencyPage(frequency, trainingSplit, { selected ->
                             frequency = selected
                             workoutDayValues = defaultDays(selected)
@@ -579,7 +591,7 @@ private fun PlayerReportPage(profile: OnboardingProfile) {
         profile.weightKg, profile.heightCm, age, profile.sex, profile.activity, profile.objective,
     )
     val bmi = profile.weightKg / ((profile.heightCm / 100) * (profile.heightCm / 100))
-    val plan = remember(profile) { CustomPlanEngine.generate(profile.workoutFrequency, profile.workoutDays, profile.focusAreas, profile.injuries, profile.equipment, profile.experience, profile.objective, profile.trainingSplit) }
+    val plan = remember(profile) { CustomPlanEngine.generate(profile.workoutFrequency, profile.workoutDays, profile.focusAreas, profile.injuries, profile.equipment, profile.experience, profile.objective, profile.trainingSplit, profile.sessionMinutes) }
     val sessionMinutes = plan.workouts.take(plan.weeklyDays.size).map { it.name to it.estimatedMinutes }
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         AscendCard(Modifier.fillMaxWidth(), highlighted = true, accent = EnergyEmerald) {

@@ -6,6 +6,7 @@ import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.NoCredentialException
+import androidx.credentials.exceptions.GetCredentialProviderConfigurationException
 import com.ascend.app.OnboardingProfile
 import com.ascend.app.R
 import com.ascend.app.core.database.DailySummaryEntity
@@ -25,24 +26,43 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 class GoogleProgressService(private val context: Context) {
+    // Optional in offline-only builds. The wildcard keep rule preserves it during shrinking.
+    @get:android.annotation.SuppressLint("DiscouragedApi")
+    private val webClientId: String?
+        get() {
+            val explicit = context.getString(R.string.google_oauth_web_client_id).takeUnless { it == "CONFIGURE_IN_FIREBASE" || it.isBlank() }
+            val generatedId = context.resources.getIdentifier("default_web_client_id", "string", context.packageName)
+            return explicit ?: generatedId.takeIf { it != 0 }?.let(context::getString)?.takeIf { it.endsWith(".apps.googleusercontent.com") }
+        }
     val isConfigured: Boolean
-        get() = context.getString(R.string.google_oauth_web_client_id) != "CONFIGURE_IN_FIREBASE" &&
+        get() = webClientId != null &&
             FirebaseApp.initializeApp(context) != null
 
     suspend fun signInAndCreateBackup(activity: Activity, input: OnboardingProfile): Result<String> = runCatching {
+        val user = authenticate(activity)
+        FirebaseFirestore.getInstance().collection("players").document(user.uid)
+            .collection("progress").document("onboarding")
+            .set(input.toCloudMap() + mapOf("syncedAt" to FieldValue.serverTimestamp()))
+            .awaitResult()
+        user.email ?: error("Google account did not supply an email address.")
+    }
+
+    suspend fun authenticate(activity: Activity): com.google.firebase.auth.FirebaseUser {
         check(isConfigured) {
             "Google save needs the Firebase configuration file and OAuth web client ID. You can continue offline safely."
         }
         val googleOption = GetGoogleIdOption.Builder()
             .setFilterByAuthorizedAccounts(false)
             .setAutoSelectEnabled(false)
-            .setServerClientId(context.getString(R.string.google_oauth_web_client_id))
+            .setServerClientId(requireNotNull(webClientId))
             .build()
         val request = GetCredentialRequest.Builder().addCredentialOption(googleOption).build()
         val result = try {
             CredentialManager.create(context).getCredential(activity, request)
         } catch (error: NoCredentialException) {
             throw IllegalStateException("No eligible Google account was found. Add an account to this device and try again.", error)
+        } catch (error: GetCredentialProviderConfigurationException) {
+            throw IllegalStateException("Google sign-in needs an available Google Play services credential provider. Update Play services or use a Google-enabled device; your local progress is safe.", error)
         }
         val credential = result.credential
         check(credential is CustomCredential && credential.type == TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
@@ -56,14 +76,10 @@ class GoogleProgressService(private val context: Context) {
         check(!user.isAnonymous && user.providerData.any { it.providerId == GoogleAuthProvider.PROVIDER_ID }) {
             "ASCEND requires a verified Google-authenticated Firebase session for cloud progress."
         }
-        FirebaseFirestore.getInstance().collection("players").document(user.uid)
-            .collection("progress").document("onboarding")
-            .set(input.toCloudMap() + mapOf("syncedAt" to FieldValue.serverTimestamp()))
-            .awaitResult()
-        user.email ?: googleCredential.id
+        return user
     }
 
-    fun syncProgress(
+    suspend fun syncProgress(
         profile: UserProfileEntity,
         target: NutritionTargetEntity,
         lifetimeXp: Int,
@@ -93,7 +109,7 @@ class GoogleProgressService(private val context: Context) {
             "syncedAt" to FieldValue.serverTimestamp(),
         )
         FirebaseFirestore.getInstance().collection("players").document(user.uid)
-            .collection("progress").document("current").set(snapshot)
+            .collection("progress").document("current").set(snapshot).awaitResult()
     }
 
     private fun OnboardingProfile.toCloudMap(): Map<String, Any> = mapOf(
@@ -120,6 +136,7 @@ class GoogleProgressService(private val context: Context) {
 
     private suspend fun <T> Task<T>.awaitResult(): T = suspendCancellableCoroutine { continuation ->
         addOnCompleteListener { task ->
+            if (!continuation.isActive) return@addOnCompleteListener
             if (task.isSuccessful) continuation.resume(task.result)
             else continuation.resumeWithException(task.exception ?: IllegalStateException("Cloud operation failed"))
         }

@@ -19,5 +19,5 @@ class AscendApplication : Application() {
     val preferences by lazy { UserPreferences(this) }
     val cloudProgress by lazy { GoogleProgressService(this) }
     val systemAi by lazy { SystemAiService(this) }
-    val repository by lazy { AscendRepository(database.dao(), preferences, cloudProgress, systemAi) }
+    val repository by lazy { AscendRepository(database, preferences, cloudProgress, systemAi) }
 }

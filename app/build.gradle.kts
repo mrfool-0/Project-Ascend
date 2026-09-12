@@ -16,8 +16,8 @@ android {
         applicationId = "com.ascend.app"
         minSdk = 26
         targetSdk = 37
-        versionCode = 8
-        versionName = "1.7.0"
+        versionCode = 9
+        versionName = "1.8.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -47,6 +47,7 @@ android {
     packaging.resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     testOptions.unitTests.isIncludeAndroidResources = true
     installation.installOptions.add("-r")
+    sourceSets.getByName("androidTest").assets.srcDir("schemas")
 }
 
 ksp {

@@ -60,6 +60,8 @@ fun HomeScreen(
     onOpenHabits: () -> Unit,
     onAddWater: (Int) -> Unit,
     onToggleHabit: (HabitEntity, Boolean) -> Unit,
+    week: List<com.ascend.app.TrainingDay> = emptyList(),
+    onOpenTraining: () -> Unit = {},
 ) {
     val greeting = when (LocalTime.now().hour) {
         in 5..11 -> "Good morning"
@@ -91,7 +93,12 @@ fun HomeScreen(
         }
 
         item {
-            TodayQuestCard(todayTemplate, workoutDone, workoutStarted, state.profile?.workoutDays.orEmpty(), currentDate, onStartWorkout)
+            val effectiveDays = if (week.isEmpty()) state.profile?.workoutDays.orEmpty() else week.filter { it.template?.isRecovery == false }.joinToString(",") { it.date.dayOfWeek.value.toString() }
+            TodayQuestCard(todayTemplate, workoutDone, workoutStarted, effectiveDays, currentDate, onStartWorkout)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                TextButton(onClick = onOpenTraining) { Text("View & edit protocol ↗", color = EnergyCyan) }
+                if (week.any { it.adjusted }) TextButton(onClick = onOpenTraining) { Text("Week adjusted", color = EnergyAmber) }
+            }
         }
 
         item {

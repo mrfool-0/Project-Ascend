@@ -36,20 +36,21 @@ object CustomPlanEngine {
         experience: Experience,
         objective: Objective = Objective.GENERAL_HEALTH,
         trainingSplit: TrainingSplit = TrainingSplit.AUTO,
+        sessionMinutes: Int = 45,
     ): CustomPlan {
         require(frequency in 2..6)
         require(workoutDays.size == frequency)
-        val effectiveSplit = if (trainingSplit == TrainingSplit.AUTO && FocusArea.FULL_BODY in focusAreas) {
+        require(sessionMinutes in 30..90)
+        val normalizedFocus = FocusRules.normalize(focusAreas)
+        val effectiveSplit = if (trainingSplit == TrainingSplit.AUTO && FocusArea.FULL_BODY in normalizedFocus) {
             TrainingSplit.FULL_BODY
         } else {
             trainingSplit
         }
         val base = weeklyArchitecture(frequency, effectiveSplit)
         val setCount = prescribedWorkingSets(frequency, experience, objective)
-        val specificFocusSelected = focusAreas.any { it != FocusArea.FULL_BODY }
         val exerciseLimit = when {
-            effectiveSplit == TrainingSplit.FULL_BODY && specificFocusSelected -> 6
-            effectiveSplit == TrainingSplit.FULL_BODY -> 5
+            effectiveSplit == TrainingSplit.FULL_BODY -> 7
             experience == Experience.BEGINNER || objective == Objective.BUILD_CONSISTENCY -> 4
             else -> 6
         }
@@ -58,7 +59,7 @@ object CustomPlanEngine {
                 return@mapIndexed PlannedWorkout("CLEARANCE / RECOVERY", 20, emptyList(), recovery = true)
             }
             val exercises = exercisesFor(name, equipment, setCount, index)
-                .let { addFocusExercise(it, focusAreas, equipment, setCount, index, exerciseLimit) }
+                .let { addFocusExercise(it, normalizedFocus, equipment, setCount, index, exerciseLimit) }
                 .map { adaptForInjuries(it, injuries, equipment) }
                 .map { exercise ->
                     if (objective == Objective.BUILD_CONSISTENCY) {
@@ -69,13 +70,18 @@ object CustomPlanEngine {
                 }
                 .distinctBy { it.name }
                 .take(exerciseLimit)
-            PlannedWorkout(name, 15 + exercises.sumOf { it.sets * 2 }, exercises)
+            val affordableSets = ((sessionMinutes - 12) / (exercises.size.coerceAtLeast(1) * 2)).coerceAtLeast(1)
+            val timed = exercises.map { it.copy(sets = minOf(it.sets, affordableSets)) }
+            PlannedWorkout(name, 12 + timed.sumOf { it.sets * 2 }, timed)
         }
         val safety = buildList {
             if (injuries.any { it != InjuryArea.NONE }) add("Movements were conservatively substituted around reported limitations. Stop if pain appears and get clinical clearance where appropriate.")
             if (InjuryArea.CARDIOVASCULAR in injuries) add("Medical clearance is required before vigorous training; ASCEND cannot assess cardiovascular safety.")
             add("Begin below maximum effort, preserve technique, and progress only after every target rep is controlled across two sessions.")
             if (frequency >= 5) add("High-frequency programming uses lower per-session set counts so weekly work remains recoverable.")
+            if (effectiveSplit == TrainingSplit.FULL_BODY && workoutDays.any { day -> day.plus(1) in workoutDays }) add("Your selection includes consecutive full-body days. Consider spacing them out; use the weekly map to protect recovery.")
+            if (equipment == Equipment.BODYWEIGHT) add("No equipment selected: prone back work is included, but it is not equivalent to loaded rows or pulldowns.")
+            add("Session estimates include warm-up and rest. Full Body covers major muscle groups through compound movements and accessories.")
         }
         return CustomPlan(
             title = "${frequency}-DAY ${effectiveSplit.displayName} ${objective.name.replace('_', ' ')} PROTOCOL",
@@ -134,7 +140,7 @@ object CustomPlanEngine {
             variant,
             gym = listOf("Barbell Bench Press", "Seated Overhead Press", "Incline Dumbbell Press"),
             bodyweight = listOf("Push-up", "Pike Push-up", "Tempo Push-up"),
-            dumbbell = listOf("Dumbbell Floor Press", "Dumbbell Shoulder Press", "Incline Dumbbell Press"),
+            dumbbell = listOf("Dumbbell Floor Press", "Dumbbell Shoulder Press", "Neutral-grip Floor Press"),
             equipment = equipment,
             group = if (variant % 3 == 1) "Shoulders" else "Chest",
             sets = sets,
@@ -143,9 +149,9 @@ object CustomPlanEngine {
         )
         val pushSecondary = movementVariant(
             variant + 1,
-            gym = listOf("Machine Chest Press", "Landmine Press", "Dumbbell Bench Press"),
-            bodyweight = listOf("Incline Push-up", "Kneeling Pike Push-up", "Close-grip Push-up"),
-            dumbbell = listOf("Neutral-grip Floor Press", "Half-kneeling Dumbbell Press", "Dumbbell Squeeze Press"),
+            gym = listOf("Machine Chest Press", "Dumbbell Bench Press", "Chest Press"),
+            bodyweight = listOf("Incline Push-up", "Kneeling Push-up", "Close-grip Push-up"),
+            dumbbell = listOf("Neutral-grip Floor Press", "Dumbbell Floor Press", "Dumbbell Squeeze Press"),
             equipment = equipment,
             group = "Chest",
             sets = sets,
@@ -155,8 +161,8 @@ object CustomPlanEngine {
         val pullPrimary = movementVariant(
             variant,
             gym = listOf("Lat Pulldown", "Chest Supported Row", "Seated Cable Row"),
-            bodyweight = listOf("Inverted Row", "Prone Y-T-W", "Superman Row"),
-            dumbbell = listOf("One-arm Dumbbell Row", "Chest-supported Dumbbell Row", "Dumbbell Pullover"),
+            bodyweight = listOf("Prone W Raise", "Prone Y-T-W", "Reverse Snow Angel"),
+            dumbbell = listOf("One-arm Dumbbell Row", "Bent-over Dumbbell Row", "Dumbbell Pullover"),
             equipment = equipment,
             group = "Back",
             sets = sets,
@@ -166,7 +172,7 @@ object CustomPlanEngine {
         val pullSecondary = movementVariant(
             variant + 1,
             gym = listOf("Machine Row", "Neutral-grip Pulldown", "Face Pull"),
-            bodyweight = listOf("Reverse Snow Angel", "Towel Row Isometric", "Prone Cobra"),
+            bodyweight = listOf("Reverse Snow Angel", "Prone W Raise", "Superman Row"),
             dumbbell = listOf("Dumbbell Row", "Rear Delt Fly", "Dumbbell High Row"),
             equipment = equipment,
             group = "Back",
@@ -197,11 +203,11 @@ object CustomPlanEngine {
             max = 12,
         )
         val calf = move("Standing Calf Raise", "Single-leg Calf Raise", "Dumbbell Calf Raise", equipment, "Calves", accessorySets, 12, 20)
-        val shoulderAccessory = move("Cable Lateral Raise", "Lateral Raise", "Dumbbell Lateral Raise", equipment, "Shoulders", accessorySets, 12, 20)
+        val shoulderAccessory = move("Cable Lateral Raise", "Prone Y Raise", "Dumbbell Lateral Raise", equipment, "Shoulders", accessorySets, 12, 20)
         val armAccessory = movementVariant(
             variant,
             gym = listOf("Triceps Pushdown", "Cable Curl", "Rope Hammer Curl"),
-            bodyweight = listOf("Diamond Push-up", "Towel Curl Isometric", "Close-grip Push-up"),
+            bodyweight = listOf("Diamond Push-up", "Self-resisted Biceps Curl", "Close-grip Push-up"),
             dumbbell = listOf("Dumbbell Triceps Extension", "Dumbbell Curl", "Hammer Curl"),
             equipment = equipment,
             group = "Arms",
@@ -211,7 +217,7 @@ object CustomPlanEngine {
         )
         val core = listOf(
             PlannedExercise("Dead Bug", "Core", accessorySets, 8, 12),
-            PlannedExercise("Side Plank", "Core", accessorySets, 20, 40),
+            PlannedExercise("Heel Tap", "Core", accessorySets, 10, 20),
             PlannedExercise("Bird Dog", "Core", accessorySets, 8, 12),
         )[Math.floorMod(variant, 3)]
 
@@ -220,7 +226,7 @@ object CustomPlanEngine {
             name.startsWith("PULL") -> listOf(pullPrimary, pullSecondary, shoulderAccessory, armAccessory, core)
             name.startsWith("LEGS") || name.startsWith("LOWER") -> listOf(kneeDominant, hipDominant, calf, core)
             name.startsWith("UPPER") -> listOf(pushPrimary, pushSecondary, pullPrimary, pullSecondary, core)
-            else -> listOf(pushPrimary, pullPrimary, kneeDominant, hipDominant, core)
+            else -> listOf(if (pushPrimary.muscleGroup == "Chest") pushPrimary else pushSecondary, pullPrimary, kneeDominant, hipDominant, core, shoulderAccessory, armAccessory)
         }
     }
 
@@ -256,9 +262,9 @@ object CustomPlanEngine {
             FocusArea.GLUTES -> move("Hip Thrust", "Glute Bridge", "Dumbbell Hip Thrust", equipment, "Glutes", sets, 8, 15)
             FocusArea.CHEST -> move("Chest Fly", "Wide Push-up", "Dumbbell Fly", equipment, "Chest", focusSets, 10, 15)
             FocusArea.BACK -> move("Machine Row", "Superman Row", "Dumbbell Pullover", equipment, "Back", focusSets, 10, 15)
-            FocusArea.SHOULDERS -> move("Machine Lateral Raise", "Pike Hold", "Dumbbell Lateral Raise", equipment, "Shoulders", focusSets, 12, 20)
+            FocusArea.SHOULDERS -> move("Machine Lateral Raise", "Prone Y Raise", "Dumbbell Lateral Raise", equipment, "Shoulders", focusSets, 12, 20)
             FocusArea.ARMS -> move("Cable Curl", "Close-grip Push-up", "Hammer Curl", equipment, "Arms", focusSets, 10, 15)
-            FocusArea.CORE -> PlannedExercise("Side Plank", "Core", focusSets, 20, 40)
+            FocusArea.CORE -> PlannedExercise("Heel Tap", "Core", focusSets, 10, 20)
             FocusArea.LEGS -> move("Leg Extension", "Reverse Lunge", "Dumbbell Split Squat", equipment, "Legs", focusSets, 10, 15)
             FocusArea.ENDURANCE -> PlannedExercise("Zone 2 Finisher", "Endurance", 1, 10, 20)
             FocusArea.MOBILITY -> PlannedExercise("Mobility Flow", "Mobility", 1, 8, 12)

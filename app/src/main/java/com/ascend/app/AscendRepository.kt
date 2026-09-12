@@ -2,6 +2,8 @@ package com.ascend.app
 
 import com.ascend.app.cloud.GoogleProgressService
 import com.ascend.app.cloud.SystemAiService
+import com.ascend.app.cloud.SystemActionJson
+import androidx.room.withTransaction
 import com.ascend.app.core.database.*
 import com.ascend.app.core.datastore.AppPreferences
 import com.ascend.app.core.datastore.UserPreferences
@@ -42,6 +44,7 @@ data class OnboardingProfile(
     val minimumPromise: String,
     val googleAccountEmail: String? = null,
     val manualTargets: NutritionCalculation? = null,
+    val sessionMinutes: Int = 45,
 )
 
 data class NutritionTotals(
@@ -90,11 +93,17 @@ private data class DashboardStats(
 )
 
 class AscendRepository(
-    private val dao: AscendDao,
+    private val database: AscendDatabase,
     val preferences: UserPreferences,
     private val cloudProgress: GoogleProgressService,
     private val systemAi: SystemAiService,
 ) {
+    private val dao get() = database.dao()
+    val training = TrainingStore(database)
+    fun dayOverrides() = dao.observeDayOverrides()
+    fun workoutLinks() = dao.observeAllWorkoutExercises()
+    fun exerciseCatalog() = dao.observeExercises()
+    fun pendingProposal() = dao.observeProposal()
     private val dailySummaryMutex = Mutex()
     private val workoutMutex = Mutex()
 
@@ -165,13 +174,14 @@ class AscendRepository(
                 biologicalSex = input.sex.name, unitSystem = input.units.name, objective = input.objective.name,
                 activityLevel = input.activity.name, experience = input.experience.name, equipment = input.equipment.name,
                 dietPreference = input.diet.name, trainingTime = input.trainingTime.name,
-                focusAreas = input.focusAreas.joinToString(",") { it.name },
+                focusAreas = FocusRules.normalize(input.focusAreas).joinToString(",") { it.name },
                 injuries = input.injuries.joinToString(",") { it.name }, injuryNotes = input.injuryNotes.trim(),
                 workoutFrequency = input.workoutFrequency, trainingSplit = input.trainingSplit.name,
                 workoutDays = input.workoutDays.sortedBy { it.value }.joinToString(",") { it.value.toString() },
                 futureVision = input.futureVision.trim(), coreReason = input.coreReason.trim(),
                 minimumPromise = input.minimumPromise.trim(), googleAccountEmail = input.googleAccountEmail,
                 programStartDate = LocalDate.now().toString(), createdAt = System.currentTimeMillis(),
+                sessionMinutes = input.sessionMinutes,
             ),
         )
         dao.upsertNutritionTarget(
@@ -200,6 +210,20 @@ class AscendRepository(
         val current = dao.observeNutritionTarget().first() ?: return
         dao.upsertNutritionTarget(current.copy(calories = calories, proteinGrams = protein, carbohydrateGrams = carbs, fatGrams = fat, waterMl = waterMl, manuallyEdited = true))
         refreshDailyState(LocalDate.now())
+    }
+
+    suspend fun linkGoogle(activity: android.app.Activity) {
+        val profile = dao.observeProfile().first() ?: error("Create a player first.")
+        val target = dao.observeNutritionTarget().first() ?: error("Nutrition targets unavailable.")
+        try {
+            val user = cloudProgress.authenticate(activity)
+            val updated = profile.copy(googleAccountEmail = user.email ?: error("No email returned by Google."))
+            cloudProgress.syncProgress(updated, target, dao.observeLifetimeXp().first(), dao.observeDailySummaries().first())
+            dao.upsertProfile(updated)
+        } catch (failure: Exception) {
+            com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
+            throw failure
+        }
     }
 
     suspend fun seedCoreData() {
@@ -245,13 +269,21 @@ class AscendRepository(
         val conversationHistory = conversation.filter { it.role == "PLAYER" }.map { it.message }
         dao.insertSystemMessage(SystemMessageEntity(id(), "PLAYER", clean, now()))
         try {
+        val pending = dao.observeProposal().first()
+        if (pending != null && clean.lowercase().trim(' ', '.', '!') in setOf("yes", "confirm", "do it", "go ahead", "make the change", "okay change it")) {
+            confirmSystemProposal(pending.id, true)
+            return
+        }
+        if (pending != null && clean.lowercase().trim(' ', '.', '!') in setOf("cancel", "no", "keep it", "never mind")) {
+            confirmSystemProposal(pending.id, false)
+            return
+        }
         val totals = dao.observeFoodLogs(date.toString()).first().toTotals()
         val summary = dao.dailySummary(date.toString()) ?: emptySummary(date)
         val recentStart = date.minusDays(6)
         val recentSummaries = dao.dailySummariesBetween(recentStart.toString(), date.toString())
         val scheduledDays = profile.workoutDays.split(',').mapNotNull { it.toIntOrNull() }.map { DayOfWeek.of(it) }.toSet()
-        val index = CustomPlanEngine.templateIndexFor(date, LocalDate.parse(profile.programStartDate), scheduledDays)
-        val todayTemplate = dao.templateForIndex(index)
+        val todayTemplate = training.day(date).template
         val workout = todayTemplate?.name ?: "RECOVERY PROTOCOL"
         val todayExercises = todayTemplate?.takeUnless { it.isRecovery }?.let { template ->
             dao.templateExercises(template.id).map { detail ->
@@ -263,8 +295,7 @@ class AscendRepository(
                 )
             }
         }.orEmpty()
-        val tomorrowIndex = CustomPlanEngine.templateIndexFor(date.plusDays(1), LocalDate.parse(profile.programStartDate), scheduledDays)
-        val tomorrowWorkout = dao.templateForIndex(tomorrowIndex)?.name ?: "RECOVERY PROTOCOL"
+        val tomorrowWorkout = training.day(date.plusDays(1)).template?.name ?: "RECOVERY PROTOCOL"
         val systemContext = SystemContext(
             playerName = profile.displayName,
             objective = Objective.valueOf(profile.objective),
@@ -283,7 +314,7 @@ class AscendRepository(
             carbohydrateTarget = target.carbohydrateGrams,
             fatTarget = target.fatGrams,
             weeklySplit = dao.observeTemplates().first()
-                .filterNot { it.isRecovery }
+                .filter { it.active && !it.isRecovery }
                 .sortedBy { it.rotationIndex }
                 .joinToString(" → ") { it.name },
             focusAreas = profile.focusAreas.split(',').mapNotNull { runCatching { FocusArea.valueOf(it) }.getOrNull() }.toSet(),
@@ -295,6 +326,7 @@ class AscendRepository(
             averageCompletionLast7 = (recentSummaries.sumOf { it.completionPercent } / 7.0).toInt(),
             workoutsLast7 = dao.completedTrainingCountBetween(recentStart.toString(), date.toString()),
             recentPlayerMessages = conversationHistory,
+            actionContext = buildActionContext(date),
         )
         val localResponse = SystemEngine.respond(
             clean,
@@ -308,15 +340,21 @@ class AscendRepository(
             null
         }
         val aiReply = aiResponse?.getOrNull()
+        if (!safetyOverride && aiResponse == null && systemAi.isConfigured && com.ascend.app.BuildConfig.DEBUG) android.util.Log.w("AscendSystem", "AI request timed out")
         val systemReply = aiReply
             ?: SystemReply(localResponse, SystemCommandParser.parse(clean) ?: SystemAction(SystemActionType.NONE))
-        // Local parsing is the authorization boundary. Model output alone can never mutate player data.
-        val authorizedAction = if (safetyOverride) null else SystemCommandParser.parse(clean)
-        val actionReceipt = if (authorizedAction == null) null else {
-            runCatching { executeSystemAction(authorizedAction) }
-                .getOrElse { "ACTION REJECTED // ${it.message ?: "INVALID PARAMETERS"}" }
+        // Model output is a proposal, never write authority. A later explicit confirmation is required.
+        val authorizedAction = if (safetyOverride || !SystemCommandParser.mayPropose(clean)) null else
+            SystemCommandParser.parseSwap(clean, date) ?: aiReply?.action?.takeIf { it.type != SystemActionType.NONE } ?: SystemCommandParser.parseHabitUpdate(clean, dao.observeHabits().first()) ?: SystemCommandParser.parse(clean)
+        val actionReceipt = authorizedAction?.let { action ->
+            runCatching { proposeSystemAction(action, date); "CHANGE READY // Review the confirmation card. Nothing has changed yet." }
+                .getOrElse { "NO CHANGE // " + (it.message ?: "The proposal could not be validated.") }
         }
-        val response = listOfNotNull(systemReply.message, actionReceipt).joinToString("\n\n")
+        val coaching = if (aiReply == null && actionReceipt != null) {
+            if (actionReceipt.startsWith("CHANGE READY")) "Request understood. Review the exact change below and confirm when ready."
+            else "Your request needs an adjustment before it can be applied."
+        } else systemReply.message
+        val response = listOfNotNull(coaching, actionReceipt).joinToString("\n\n")
         val responseRole = when {
             safetyOverride -> "SYSTEM_SAFETY"
             aiResponse?.isSuccess == true -> "SYSTEM_AI"
@@ -337,7 +375,76 @@ class AscendRepository(
         }
     }
 
-    suspend fun clearSystemMessages() = dao.clearSystemMessages()
+    suspend fun clearSystemMessages() = database.withTransaction { dao.supersedeProposals(); dao.clearSystemMessages() }
+
+    private suspend fun buildActionContext(date: LocalDate): String = buildString {
+        val profile = dao.observeProfile().first()
+        appendLine("Local date: $date. Week: " + WeekRules.monday(date) + " through " + WeekRules.monday(date).plusDays(6))
+        appendLine("Equipment: " + profile?.equipment + "; experience: " + profile?.experience + "; session budget: " + profile?.sessionMinutes + " min.")
+        repeat(7) { offset -> val day = training.day(WeekRules.monday(date).plusDays(offset.toLong())); appendLine(day.date.toString() + ": " + day.template?.name + if (day.completed) " [COMPLETED / LOCKED]" else "") }
+        dao.observeTemplates().first().filter { it.active }.forEach { template ->
+            appendLine("TEMPLATE ID " + template.id + ": " + template.name)
+            dao.templateExercises(template.id).forEach { ex -> appendLine("  LINK ID " + ex.link.id + ": " + ex.exercise.name + " | " + ex.link.targetSets + " sets | " + ex.link.minReps + "-" + ex.link.maxReps + " reps") }
+        }
+        dao.observeHabits().first().forEach { appendLine("HABIT ID " + it.id + ": " + it.name + " | target " + it.target + " " + it.unit + " | " + it.frequency + " | " + it.difficulty) }
+    }
+
+    private suspend fun actionFingerprint(): String {
+        val state = listOf(LocalDate.now(), dao.observeProfile().first(), dao.observeTemplates().first(), dao.observeDayOverrides().first(), dao.observeAllWorkoutExercises().first(), dao.observeHabits().first()).joinToString("|")
+        return java.security.MessageDigest.getInstance("SHA-256").digest(state.toByteArray()).joinToString("") { "%02x".format(it) }
+    }
+
+    suspend fun proposeSystemAction(action: SystemAction, date: LocalDate = LocalDate.now()) = database.withTransaction {
+        val description = describeAction(action, date)
+        dao.supersedeProposals()
+        dao.upsertProposal(SystemProposalEntity(id(), SystemActionJson.encode(action), description, actionFingerprint(), now()))
+    }
+
+    private suspend fun describeAction(a: SystemAction, date: LocalDate): String {
+        require(a.target.isFinite() && a.target in .1..100_000.0 && a.unit.length in 1..20) { "Invalid target or unit." }
+        return when (a.type) {
+            SystemActionType.SWAP_DAYS -> {
+                val first = LocalDate.parse(a.fromDate); val second = LocalDate.parse(a.toDate)
+                WeekRules.validateSwap(first, second, date)
+                val before = training.day(first); val after = training.day(second)
+                require(!before.completed && !after.completed) { "Completed days are locked." }
+                require(before.template != null && after.template != null && before.template.id != after.template.id) { "Choose two days with different protocols." }
+                first.toString() + ": " + before.template.name + " → " + after.template.name + "\n" +
+                    second + ": " + after.template.name + " → " + before.template.name +
+                    "\nThis week only. Walking, mobility and next week stay unchanged. Recorded sessions stay locked."
+            }
+            SystemActionType.CREATE_HABIT, SystemActionType.CREATE_QUEST, SystemActionType.UPDATE_HABIT -> {
+                require(a.name.trim().length in 3..80 && a.frequency != HabitFrequency.CUSTOM) { "A clear name and supported schedule are required." }
+                val old = if (a.type == SystemActionType.UPDATE_HABIT) dao.observeHabits().first().find { it.id == a.entityId } ?: error("Choose an existing habit.") else null
+                (old?.let { "Update " + it.name + " (" + it.target + " " + it.unit + ") → " } ?: "Create ") +
+                    a.name + " · " + a.target + " " + a.unit + " · " + a.frequency.name.replace('_', ' ') + " · " + a.difficulty.name
+            }
+            SystemActionType.ADD_EXERCISE, SystemActionType.UPDATE_EXERCISE, SystemActionType.REMOVE_EXERCISE -> {
+                val template = dao.templateById(a.templateId) ?: error("Choose an existing protocol.")
+                require(template.active && !template.isRecovery) { "Choose an active training protocol." }
+                val old = if (a.type != SystemActionType.ADD_EXERCISE) dao.templateExercises(a.templateId).find { it.link.id == a.entityId } ?: error("Choose an existing exercise.") else null
+                if (a.type != SystemActionType.REMOVE_EXERCISE) require(WorkoutInputRules.isValidExercise(a.name, a.sets, a.minReps, a.maxReps)) { "Invalid exercise prescription." }
+                template.name + "\n" + when (a.type) {
+                    SystemActionType.REMOVE_EXERCISE -> "Remove " + old?.exercise?.name
+                    else -> (old?.let { it.exercise.name + " → " } ?: "Add ") + a.name + ": " + a.sets + " × " + a.minReps + "–" + a.maxReps + " reps"
+                } + "\nFuture unstarted sessions only; existing logs stay intact."
+            }
+            SystemActionType.NONE -> error("No change was requested.")
+        }
+    }
+
+    suspend fun confirmSystemProposal(proposalId: String, accept: Boolean) = database.withTransaction {
+        val pending = dao.proposalById(proposalId) ?: error("Proposal no longer exists.")
+        require(pending.status == "PENDING") { "This proposal has already been handled." }
+        val receipt = if (!accept) "CHANGE CANCELED // Your plan is unchanged." else {
+            require(now() - pending.createdAt in 0..900_000 && pending.fingerprint == actionFingerprint()) { "Your plan changed or this proposal expired. Ask SYSTEM for a fresh preview." }
+            val action = SystemActionJson.decode(pending.payload)
+            describeAction(action, LocalDate.now())
+            executeSystemAction(action)
+        }
+        dao.upsertProposal(pending.copy(status = if (accept) "APPLIED" else "CANCELED"))
+        dao.insertSystemMessage(SystemMessageEntity(id(), "SYSTEM_ACTION", receipt, now()))
+    }
 
     private suspend fun executeSystemAction(action: SystemAction): String = when (action.type) {
         SystemActionType.CREATE_HABIT -> {
@@ -362,6 +469,22 @@ class AscendRepository(
             }
         }
         SystemActionType.NONE -> error("No action requested")
+        SystemActionType.SWAP_DAYS -> {
+            training.swap(LocalDate.parse(action.fromDate), LocalDate.parse(action.toDate))
+            "WEEK UPDATED // " + action.fromDate + " ↔ " + action.toDate + ". Next week and your daily habits are unchanged."
+        }
+        SystemActionType.UPDATE_HABIT -> {
+            val habit = dao.observeHabits().first().find { it.id == action.entityId } ?: error("Habit no longer exists.")
+            val type = when (action.unit.lowercase()) { "done" -> HabitType.CHECKBOX; "min", "minutes", "hours" -> HabitType.DURATION; else -> HabitType.NUMBER }
+            dao.upsertHabit(habit.copy(name = action.name, type = type.name, target = action.target, unit = action.unit, difficulty = action.difficulty.name, frequency = action.frequency.name,
+                weekdays = when (action.frequency) { HabitFrequency.WEEKDAYS -> "1,2,3,4,5"; HabitFrequency.THREE_TIMES_WEEKLY -> "1,3,5"; else -> "" },
+                timesPerWeek = if (action.frequency == HabitFrequency.THREE_TIMES_WEEKLY) 3 else 7))
+            "HABIT UPDATED // " + action.name + ". Existing completion history retained."
+        }
+        SystemActionType.ADD_EXERCISE, SystemActionType.UPDATE_EXERCISE, SystemActionType.REMOVE_EXERCISE -> {
+            training.editExercise(action.templateId, action.entityId.takeIf { action.type != SystemActionType.ADD_EXERCISE }, action.name, action.sets, action.minReps, action.maxReps, action.type == SystemActionType.REMOVE_EXERCISE)
+            "PROTOCOL UPDATED // Future sessions use the revised plan. Started sessions and past logs are unchanged."
+        }
     }
 
     suspend fun createCustomQuest(
@@ -385,6 +508,7 @@ class AscendRepository(
                     category = category.name,
                     target = target,
                     rewardXp = rewardXp.coerceIn(10, 50),
+                    frequency = frequency.name,
                 ),
             ),
         )
@@ -392,6 +516,7 @@ class AscendRepository(
 
     suspend fun setCustomQuestCompletion(quest: QuestEntity, completed: Boolean, date: LocalDate) {
         require(quest.id.startsWith("custom_") && quest.type == QuestType.DAILY.name) { "Only custom daily quests can be toggled manually" }
+        require(QuestStatus.isScheduled(quest, date)) { "This quest is not scheduled for this day." }
         if (completed) {
             dao.insertQuestCompletion(QuestCompletionEntity(id(), quest.id, date.toString(), now()))
             awardXp(XpSourceType.QUEST, quest.id, date, quest.rewardXp.coerceIn(10, 50), quest.title)
@@ -505,15 +630,15 @@ class AscendRepository(
         }
     }
 
-    suspend fun startTodayWorkout(date: LocalDate): WorkoutLaunch = workoutMutex.withLock {
+    suspend fun startTodayWorkout(date: LocalDate): WorkoutLaunch = workoutMutex.withLock { database.withTransaction {
         dao.latestWorkout(date.toString())?.takeIf { it.completedAt == null }?.let { existing ->
-            return@withLock launchForSession(existing.id) ?: error("Unable to restore workout")
+            return@withTransaction launchForSession(existing.id) ?: error("Unable to restore workout")
         }
         require(dao.completedWorkout(date.toString()) == null) { "Today's primary quest is already complete" }
         val profile = dao.observeProfile().first() ?: error("Complete onboarding first")
         val scheduledDays = profile.workoutDays.split(',').mapNotNull { it.toIntOrNull() }.map { DayOfWeek.of(it) }.toSet()
         val templateIndex = CustomPlanEngine.templateIndexFor(date, LocalDate.parse(profile.programStartDate), scheduledDays)
-        val template = dao.templateForIndex(templateIndex) ?: error("Workout program is unavailable")
+        val template = training.day(date).template ?: error("Workout program is unavailable")
         val exercises = dao.templateExercises(template.id)
         val session = WorkoutSessionEntity(id(), template.id, date.toString(), now())
         val sets = exercises.flatMap { item ->
@@ -523,7 +648,7 @@ class AscendRepository(
         }
         dao.insertWorkoutWithSets(session, sets)
         WorkoutLaunch(session, template, exercises, sets)
-    }
+    } }
 
     suspend fun launchForSession(sessionId: String): WorkoutLaunch? {
         val session = dao.workoutSession(sessionId) ?: return null
@@ -632,7 +757,10 @@ class AscendRepository(
         }
         val profile = dao.observeProfile().first()
         if (profile != null) {
-            cloudProgress.syncProgress(profile, target, dao.observeLifetimeXp().first(), dao.observeDailySummaries().first())
+            // Local logging succeeds even if cloud is unavailable. Profile offers an explicit retry.
+            try { cloudProgress.syncProgress(profile, target, dao.observeLifetimeXp().first(), dao.observeDailySummaries().first()) }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { /* Offline data remains authoritative. */ }
         }
     }
 
@@ -672,10 +800,9 @@ class AscendRepository(
         val summaries = dao.dailySummariesBetween(start.toString(), end.toString())
         val target = dao.observeNutritionTarget().first() ?: return
         val plannedWorkouts = dao.observeProfile().first()?.workoutFrequency ?: 6
-        val protocolCount = dao.completedScheduledProtocolCountBetween(
+        val protocolCount = dao.completedTrainingCountBetween(
             start.toString(),
             end.toString(),
-            restTemplateId = "template_$plannedWorkouts",
         )
         val calorieDays = summaries.count { it.calories.toDouble() / target.calories in .9..1.1 }
         val elapsedDays = java.time.temporal.ChronoUnit.DAYS.between(start, end).toInt() + 1
@@ -703,7 +830,7 @@ class AscendRepository(
         seedPlan(
             CustomPlanEngine.generate(
                 input.workoutFrequency, input.workoutDays, input.focusAreas,
-                input.injuries, input.equipment, input.experience, input.objective, input.trainingSplit,
+                input.injuries, input.equipment, input.experience, input.objective, input.trainingSplit, input.sessionMinutes,
             ),
             input.equipment,
         )

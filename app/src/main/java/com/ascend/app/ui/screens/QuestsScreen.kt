@@ -42,23 +42,17 @@ fun QuestsScreen(
     onToggleCustomQuest: (QuestEntity, Boolean) -> Unit,
 ) {
     val target = state.target
-    val dailyStatus = mapOf(
-        "daily_workout" to state.workoutHistory.any { it.localDate == currentDate.toString() && it.completedAt != null },
-        "daily_calorie" to (target != null && state.nutrition.calories.toDouble() / target.calories in .9..1.1),
-        "daily_protein" to (target != null && state.nutrition.protein >= target.proteinGrams),
-        "daily_water" to (target != null && state.waterMl >= target.waterMl),
-        "daily_discipline" to (state.habits.isNotEmpty() && state.habitCompletions.size.toDouble() / state.habits.size >= .8),
-    )
+    val dailyStatus = com.ascend.app.domain.QuestStatus.daily(state, currentDate)
     val weekStart = currentDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
     val weekSummaries = state.dailySummaries.filter {
         val date = runCatching { LocalDate.parse(it.localDate) }.getOrNull()
         date != null && !date.isBefore(weekStart) && !date.isAfter(currentDate)
     }
     val plannedTraining = (state.profile?.workoutFrequency ?: 1).coerceAtLeast(1)
-    val recoveryTemplateId = templates.firstOrNull { it.rotationIndex == plannedTraining }?.id ?: "template_$plannedTraining"
+    val recoveryTemplateIds = templates.filter { it.isRecovery }.map { it.id }.toSet()
     val completedProtocols = state.workoutHistory.count {
         val date = runCatching { LocalDate.parse(it.localDate) }.getOrNull()
-        it.completedAt != null && it.templateId != recoveryTemplateId && date != null && !date.isBefore(weekStart) && !date.isAfter(currentDate)
+        it.completedAt != null && it.templateId !in recoveryTemplateIds && date != null && !date.isBefore(weekStart) && !date.isAfter(currentDate)
     }
     val elapsedWeekDays = (ChronoUnit.DAYS.between(weekStart, currentDate).toInt() + 1).coerceIn(1, 7)
     val weeklyAdherence = weekSummaries.sumOf { it.completionPercent }.toDouble() / (elapsedWeekDays * 100.0)
@@ -67,7 +61,7 @@ fun QuestsScreen(
         "weekly_nutrition" to (weekSummaries.count { summary -> target != null && summary.calories.toDouble() / target.calories in .9..1.1 }.toDouble() / 5).coerceIn(0.0, 1.0),
         "weekly_consistency" to weeklyAdherence / .8,
     )
-    val dailyQuests = quests.filter { it.type == QuestType.DAILY.name }
+    val dailyQuests = quests.filter { it.type == QuestType.DAILY.name && com.ascend.app.domain.QuestStatus.isScheduled(it, currentDate) }
     val dailyCompleted = dailyQuests.count { quest -> dailyStatus[quest.id] ?: (quest.id in state.questCompletions) }
     LazyColumn(
         Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 18.dp, bottom = 32.dp),

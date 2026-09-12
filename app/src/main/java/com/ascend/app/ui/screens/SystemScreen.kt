@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.FitnessCenter
 import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Info
@@ -48,6 +49,10 @@ fun SystemScreen(
     isThinking: Boolean,
     onSend: (String, SystemTone) -> Unit,
     onClear: () -> Unit,
+    proposal: com.ascend.app.core.database.SystemProposalEntity? = null,
+    actionBusy: Boolean = false,
+    onConfirm: (String, Boolean) -> Unit = { _, _ -> },
+    onTraining: () -> Unit = {},
 ) {
     var input by rememberSaveable { mutableStateOf("") }
     var toneName by rememberSaveable { mutableStateOf(SystemTone.DIRECT.name) }
@@ -66,8 +71,8 @@ fun SystemScreen(
         }
     }
 
-    LaunchedEffect(messages.size, isThinking) {
-        if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex + if (isThinking) 1 else 0)
+    LaunchedEffect(messages.size, isThinking, proposal?.id) {
+        if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex + (if (isThinking) 1 else 0) + (if (proposal != null) 1 else 0))
     }
 
     Column(Modifier.fillMaxSize()) {
@@ -80,6 +85,7 @@ fun SystemScreen(
                 Text(if (isThinking) "Analyzing your next move" else "Your tactical performance partner", style = MaterialTheme.typography.bodySmall, color = if (isThinking) EnergyAmber else TextSecondary)
             }
             IconButton(onClick = { showInfo = true }) { Icon(Icons.Outlined.Info, "About SYSTEM", tint = TextSecondary) }
+            IconButton(onClick = onTraining) { Icon(Icons.Outlined.FitnessCenter, "Open training plan", tint = EnergyCyan) }
             IconButton(onClick = { showClear = true }, enabled = messages.isNotEmpty() && !isThinking) { Icon(Icons.Outlined.DeleteOutline, "Clear conversation", tint = TextSecondary) }
         }
 
@@ -140,6 +146,20 @@ fun SystemScreen(
                 Box(Modifier.animateItem()) { MessageBubble(message.role, cleaned, player, shouldAnimate) { lastRenderedSystemId = message.id } }
             }
             if (isThinking) item(key = "system_processing") { SystemProcessingBubble() }
+            if (proposal != null) item(key = proposal.id) {
+                AscendCard(Modifier.fillMaxWidth(), accent = EnergyCyan, highlighted = true) {
+                    StatusPill("SYSTEM / CHANGE REQUEST", EnergyCyan)
+                    Spacer(Modifier.height(12.dp))
+                    Text("Your confirmation.\nYour command.", style = MaterialTheme.typography.headlineSmall)
+                    Spacer(Modifier.height(12.dp))
+                    Text(proposal.summary, style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.height(8.dp))
+                    Text("Not applied yet · expires after 15 minutes or a plan change.", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                    Spacer(Modifier.height(12.dp))
+                    SystemButton(if (actionBusy) "Applying…" else "Confirm change", { onConfirm(proposal.id, true) }, Modifier.fillMaxWidth(), enabled = !actionBusy && !isThinking)
+                    TextButton(onClick = { onConfirm(proposal.id, false) }, enabled = !actionBusy && !isThinking) { Text("Keep my current plan") }
+                }
+            }
         }
 
         Surface(color = GlassSurface, shadowElevation = 12.dp) {

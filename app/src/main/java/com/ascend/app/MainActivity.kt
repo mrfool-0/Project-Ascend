@@ -114,6 +114,12 @@ private fun MainNavigation(viewModel: AscendViewModel, preferences: com.ascend.a
     val activeSets by viewModel.activeSets.collectAsStateWithLifecycle()
     val systemMessages by viewModel.systemMessages.collectAsStateWithLifecycle()
     val systemThinking by viewModel.systemThinking.collectAsStateWithLifecycle()
+    val week by viewModel.trainingWeek.collectAsStateWithLifecycle()
+    val planLinks by viewModel.workoutLinks.collectAsStateWithLifecycle()
+    val exerciseCatalog by viewModel.exerciseCatalog.collectAsStateWithLifecycle()
+    val pendingProposal by viewModel.pendingProposal.collectAsStateWithLifecycle()
+    val trainingBusy by viewModel.trainingBusy.collectAsStateWithLifecycle()
+    val activity = androidx.activity.compose.LocalActivity.current
     val backStack by navController.currentBackStackEntryAsState()
     val route = backStack?.destination?.route
     val snackbarHost = remember { SnackbarHostState() }
@@ -127,6 +133,10 @@ private fun MainNavigation(viewModel: AscendViewModel, preferences: com.ascend.a
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     LaunchedEffect(Unit) {
+        activity?.intent?.getStringExtra("ascend_destination")?.takeIf { it in setOf("training", "quests", "nutrition") }?.let {
+            navController.navigate(it) { launchSingleTop = true }
+            activity.intent.removeExtra("ascend_destination")
+        }
         if (Build.VERSION.SDK_INT >= 33 && listOf(preferences.morningNotifications, preferences.workoutNotifications, preferences.nutritionNotifications, preferences.eveningNotifications).any { it }) {
             permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
@@ -149,14 +159,7 @@ private fun MainNavigation(viewModel: AscendViewModel, preferences: com.ascend.a
         }
     }
 
-    val todayTemplate = remember(state.profile, templates, currentDate) {
-        val profile = state.profile
-        if (profile == null) null else {
-            val scheduled = profile.workoutDays.split(',').mapNotNull { it.toIntOrNull() }.map(DayOfWeek::of).toSet()
-            val index = CustomPlanEngine.templateIndexFor(currentDate, LocalDate.parse(profile.programStartDate), scheduled)
-            templates.firstOrNull { it.rotationIndex == index }
-        }
-    }
+    val todayTemplate = week.find { it.date == currentDate }?.template
     fun startWorkout() {
         if (questLaunching || todayTemplate == null) return
         questLaunching = true
@@ -230,6 +233,7 @@ private fun MainNavigation(viewModel: AscendViewModel, preferences: com.ascend.a
                         { navController.navigate("profile") }, ::startWorkout,
                         { navController.navigate(MainDestination.NUTRITION.route) }, { navController.navigate("progress") },
                         { navController.navigate(MainDestination.HABITS.route) }, viewModel::addWater, viewModel::toggleHabit,
+                        week = week, onOpenTraining = { navController.navigate("training") },
                     )
                 }
                 composable("quests") { QuestsScreen(state, templates, quests, achievements, unlocked, currentDate, { navController.popBackStack() }, ::startWorkout, viewModel::toggleCustomQuest) }
@@ -242,7 +246,13 @@ private fun MainNavigation(viewModel: AscendViewModel, preferences: com.ascend.a
                 }
                 composable("progress") { ProgressScreen(state, templates, { navController.popBackStack() }, viewModel::logWeight) }
                 composable(MainDestination.HABITS.route) { HabitsScreen(state, habits, viewModel::toggleHabit, viewModel::createHabit) }
-                composable(MainDestination.SYSTEM.route) { SystemScreen(state, systemMessages, systemThinking, viewModel::sendSystemMessage, viewModel::clearSystemMessages) }
+                composable(MainDestination.SYSTEM.route) { SystemScreen(state, systemMessages, systemThinking, viewModel::sendSystemMessage, viewModel::clearSystemMessages,
+                    pendingProposal, trainingBusy, viewModel::confirmProposal, { navController.navigate("training") }) }
+                composable("training") {
+                    TrainingPlanScreen(state.profile, week, templates, planLinks, exerciseCatalog, trainingBusy,
+                        { navController.popBackStack() }, { navController.navigate(MainDestination.SYSTEM.route) { launchSingleTop = true } },
+                        viewModel::rebuildProgram, viewModel::swapDays, viewModel::editPlanExercise)
+                }
                 composable("workout") {
                     WorkoutScreen(activeWorkout, activeSets, { navController.popBackStack() }, viewModel::updateSet, viewModel::addWorkoutExercise, viewModel::removeWorkoutExercise) {
                         viewModel.completeWorkout { navController.popBackStack(MainDestination.HOME.route, false) }
@@ -253,6 +263,9 @@ private fun MainNavigation(viewModel: AscendViewModel, preferences: com.ascend.a
                         state, templates, preferences, unlocked, { navController.popBackStack() }, viewModel::updateNotification,
                         viewModel::updateMealSections,
                         { navController.navigate("progress") }, { navController.navigate("quests") }, viewModel::updateProfileImage,
+                        onOpenTraining = { navController.navigate("training") },
+                        googleBusy = trainingBusy,
+                        onGoogleLink = { activity?.let(viewModel::linkGoogle) },
                     )
                 }
             }

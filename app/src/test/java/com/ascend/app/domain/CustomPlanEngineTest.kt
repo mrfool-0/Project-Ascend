@@ -99,7 +99,7 @@ class CustomPlanEngineTest {
         val names = plan.workouts.filterNot { it.recovery }.flatMap { it.exercises }.map { it.name }
         assertTrue("Wide Push-up" in names)
         assertTrue("Superman Row" in names)
-        assertTrue("Side Plank" in names)
+        assertTrue("Heel Tap" in names)
         assertTrue(plan.workouts.filterNot { it.recovery }.all { it.exercises.size <= 5 })
     }
 

@@ -15,6 +15,8 @@ import com.ascend.app.domain.TrainingTime
 import com.ascend.app.ui.screens.NewFoodInput
 import com.ascend.app.ui.screens.NewHabitInput
 import com.ascend.app.ui.screens.NewExerciseInput
+import com.ascend.app.ui.screens.PlanExerciseEdit
+import com.ascend.app.domain.WeekRules
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -43,6 +45,33 @@ class AscendViewModel(application: Application, private val repository: AscendRe
     val foodLogs = _currentDate.flatMapLatest(repository::foodLogs).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val habits = repository.habits().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val templates = repository.templates().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val dayOverrides = repository.dayOverrides().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val workoutLinks = repository.workoutLinks().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val exerciseCatalog = repository.exerciseCatalog().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val pendingProposal = repository.pendingProposal().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    val trainingWeek = combine(dashboard, templates, dayOverrides, currentDate) { state, plans, changes, date ->
+        (0..6).map { offset -> TrainingSchedule.resolve(state.profile, plans, changes, state.workoutHistory, WeekRules.monday(date).plusDays(offset.toLong())) }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    private val _trainingBusy = MutableStateFlow(false)
+    val trainingBusy = _trainingBusy.asStateFlow()
+    fun rebuildProgram(settings: ProgramSettings) = changeTraining { repository.training.rebuild(settings) }
+    fun swapDays(first: LocalDate, second: LocalDate) = changeTraining { repository.training.swap(first, second) }
+    fun editPlanExercise(input: PlanExerciseEdit) = changeTraining { repository.training.editExercise(input.templateId, input.linkId, input.name, input.sets, input.min, input.max, input.remove) }
+    fun confirmProposal(id: String, accept: Boolean) = changeTraining(if (accept) "SYSTEM // Change confirmed" else "SYSTEM // Plan kept unchanged") { repository.confirmSystemProposal(id, accept) }
+    fun linkGoogle(activity: android.app.Activity) = changeTraining { repository.linkGoogle(activity) }
+    private fun changeTraining(success: String = "SYSTEM // Changes saved", action: suspend () -> Unit) {
+        if (_trainingBusy.value) return
+        _trainingBusy.value = true
+        viewModelScope.launch {
+            try {
+                action()
+                _activeWorkout.value?.let { _activeWorkout.value = repository.launchForSession(it.session.id) }
+                _events.emit(UiEvent.Message(success))
+            } catch (cancelled: CancellationException) { throw cancelled
+            } catch (failure: Exception) { _events.emit(UiEvent.Message(failure.safeMessage()))
+            } finally { _trainingBusy.value = false }
+        }
+    }
     val quests = repository.quests().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val achievements = repository.achievements().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val unlockedAchievements = repository.unlockedAchievements().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -157,7 +186,7 @@ class AscendViewModel(application: Application, private val repository: AscendRe
     fun logWeight(weight: Double, note: String) = launchAction { repository.addWeight(weight, _currentDate.value, note); _events.emit(UiEvent.Message("Weight recorded • +15 XP")) }
     fun updateTargets(calories: Int, protein: Int, carbs: Int, fat: Int, water: Int) = launchAction { repository.updateNutritionTargets(calories, protein, carbs, fat, water) }
     fun sendSystemMessage(message: String, tone: SystemTone) {
-        if (_systemThinking.value || message.isBlank()) return
+        if (_systemThinking.value || _trainingBusy.value || message.isBlank()) return
         _systemThinking.value = true
         viewModelScope.launch {
             try {

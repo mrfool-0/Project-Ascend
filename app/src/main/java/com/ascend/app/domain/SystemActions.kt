@@ -1,6 +1,6 @@
 package com.ascend.app.domain
 
-enum class SystemActionType { NONE, CREATE_HABIT, CREATE_QUEST }
+enum class SystemActionType { NONE, CREATE_HABIT, CREATE_QUEST, UPDATE_HABIT, SWAP_DAYS, ADD_EXERCISE, UPDATE_EXERCISE, REMOVE_EXERCISE }
 
 data class SystemAction(
     val type: SystemActionType,
@@ -11,12 +11,47 @@ data class SystemAction(
     val difficulty: HabitDifficulty = HabitDifficulty.NORMAL,
     val category: QuestCategory = QuestCategory.DISCIPLINE,
     val rewardXp: Int = 25,
+    val entityId: String = "",
+    val templateId: String = "",
+    val fromDate: String = "",
+    val toDate: String = "",
+    val sets: Int = 3,
+    val minReps: Int = 8,
+    val maxReps: Int = 12,
 )
 
 data class SystemReply(val message: String, val action: SystemAction = SystemAction(SystemActionType.NONE))
 
 /** Conservative offline command parsing for direct create/add requests. */
 object SystemCommandParser {
+    fun parseHabitUpdate(message: String, habits: List<com.ascend.app.core.database.HabitEntity>): SystemAction? {
+        if (!mayPropose(message) || !Regex("\\b(change|update|edit)\\b", RegexOption.IGNORE_CASE).containsMatchIn(message) || !message.contains("habit", true)) return null
+        val matching = habits.filter { it.active && Regex("\\b" + Regex.escape(it.name) + "\\b", RegexOption.IGNORE_CASE).containsMatchIn(message) }
+        val habit = matching.singleOrNull() ?: return null
+        val target = targetPattern.findAll(message).lastOrNull() ?: return null
+        // Deliberately narrow: quantity edits only, preserving cadence, difficulty and unit.
+        val unit = target.groupValues[2].lowercase().normalizeUnit()
+        val requestedFrequency = when {
+            message.contains("weekday", true) -> HabitFrequency.WEEKDAYS.name
+            message.contains("three times", true) || message.contains("3x", true) -> HabitFrequency.THREE_TIMES_WEEKLY.name
+            message.contains("daily", true) || message.contains("every day", true) -> HabitFrequency.EVERY_DAY.name
+            else -> habit.frequency
+        }
+        if (unit != habit.unit.lowercase().normalizeUnit() || requestedFrequency != habit.frequency) return null
+        return SystemAction(SystemActionType.UPDATE_HABIT, habit.name, target.groupValues[1].toDoubleOrNull() ?: return null,
+            habit.unit, HabitFrequency.valueOf(habit.frequency), HabitDifficulty.valueOf(habit.difficulty), entityId = habit.id)
+    }
+    fun parseSwap(message: String, today: java.time.LocalDate): SystemAction? {
+        val text = message.lowercase()
+        if (hypotheticalOpening.containsMatchIn(text)) return null
+        if (!Regex("\\b(swap|switch|move|change|shift|instead)\\b").containsMatchIn(text)) return null
+        if ("today" in text && Regex("\\b(tomorrow|tom)\\b").containsMatchIn(text) &&
+            Regex("\\b(rest|break|workout|train|gym|day)\\b").containsMatchIn(text)) {
+            return SystemAction(SystemActionType.SWAP_DAYS, fromDate = today.toString(), toDate = today.plusDays(1).toString())
+        }
+        return null
+    }
+    fun mayPropose(message: String) = !hypotheticalOpening.containsMatchIn(message.trim()) && !Regex("\\b(do not|don't|dont|never)\\s+(?:want to\\s+)?(add|create|change|edit|update|swap|move)\\b", RegexOption.IGNORE_CASE).containsMatchIn(message)
     private val createWords = Regex("\\b(add|create|make|set|build|customi[sz]e)\\b", RegexOption.IGNORE_CASE)
     private val targetPattern = Regex("(\\d+(?:\\.\\d+)?)\\s*(steps?|minutes?|mins?|hours?|hrs?|ml|lit(?:er|re)s?|glasses?|reps?|pages?)", RegexOption.IGNORE_CASE)
     private val cadencePattern = Regex("\\b(every day|daily|on weekdays|weekdays|three times (?:a|per) week|3x (?:a|per) week)\\b", RegexOption.IGNORE_CASE)
@@ -25,7 +60,7 @@ object SystemCommandParser {
     fun parse(message: String): SystemAction? {
         val clean = message.trim()
         if (!createWords.containsMatchIn(clean)) return null
-        if (hypotheticalOpening.containsMatchIn(clean)) return null
+        if (!mayPropose(clean)) return null
         val lower = clean.lowercase()
         val type = when {
             "habit" in lower -> SystemActionType.CREATE_HABIT

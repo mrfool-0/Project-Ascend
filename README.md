@@ -17,7 +17,9 @@ ASCEND is an offline-first native Android health, training, nutrition, habit, an
 - Body-weight logging, trend-focused charting, 7-day averages, consistency heatmap, training/nutrition summaries and ASCEND game scores
 - Daily, weekly, and player-created quest ledger; rank badges; level-up/quest/PR presentation; configurable WorkManager reminders; and settings. Quest and Progress are available from the player profile while the bottom bar stays focused on Home, Nutrition, Habits, and SYSTEM.
 - ASCEND SYSTEM, a tactical Firebase AI Logic performance OS with a capable on-device fallback and a custom hooded interface identity. It understands misspellings, natural fitness questions, exercise-form requests, compound requests, and follow-ups; reads the exact current sets/reps plus calibrated BMR, macros, hydration, weekly split, streaks, live totals, and recent behavior; offers Ally/Command/Ruthless voice modes; preserves local emergency safeguards; and renders concise robotic typewriter responses.
-- Action-capable SYSTEM commands: explicit requests can create scheduled habits or custom daily quests, with bounded XP, duplicate protection, and tap-to-complete/revert ledger behavior. Coaching adapts to logged consistency using transparent motivational interviewing and implementation intentions; covert or coercive manipulation is explicitly forbidden.
+- Confirmation-based SYSTEM commands: create/update habits, create scheduled quests, add/edit/remove workout exercises and exchange two days within the current week. Durable change cards show the exact proposal; nothing changes until confirmed. Expired/stale proposals and duplicate confirmations are rejected. Coaching adapts to logged consistency; covert or coercive manipulation is explicitly forbidden.
+- A dedicated Training center with calibrated plan previews, session time budgets, complete Full Body region selection, versioned exercise prescriptions and week-only rest-day swaps. Existing workout logs and nutrition targets survive a rebuild.
+- Evening warnings name unfinished scheduled quests and habits, suppress completed/off-day objectives, and open the relevant screen. Notification timing is approximate under Android battery management.
 - Room persistence and Preferences DataStore; no analytics, ads, or mandatory network access
 - A local player profile photo picker that stores the selected image privately and decodes it efficiently for display
 - Optional Credential Manager Google sign-in with Firebase Authentication/Firestore progress snapshots; strict owner-only Firestore rules, verified identities, server timestamps, and build-appropriate Firebase App Check providers protect the backend while private offline mode remains fully supported
@@ -56,7 +58,7 @@ Command line:
 
 The debug APK is generated at `app/build/outputs/apk/debug/app-debug.apk`.
 
-Version 1.7's design decisions, research sources, regression checks and known limits are recorded in [the interface audit](docs/PREMIUM_UI_AUDIT.md).
+Version 1.8's architecture changes, verification and remaining setup requirements are recorded in [the training and SYSTEM audit](docs/TRAINING_SYSTEM_AUDIT.md). Earlier design decisions are recorded in [the interface audit](docs/PREMIUM_UI_AUDIT.md).
 
 ## Architecture
 
@@ -80,7 +82,7 @@ Room owns structured health/progression records. DataStore owns lightweight pref
 
 ## Database
 
-The schema includes user profile and nutrition target, foods/logs/saved meals, weight and body measurements, exercises/templates/sessions/sets, habits/completions, quests/completions, XP transactions, achievements/unlocks, and daily summaries.
+Schema 6 includes user profile and nutrition target, foods/logs/saved meals, weight and body measurements, versioned exercises/templates/sessions/sets, date-specific workout overrides, durable SYSTEM proposals, habits/completions, scheduled quests/completions, XP transactions, achievements/unlocks, and daily summaries. Non-destructive migrations preserve older installations.
 
 Daily records use a local calendar date string (`YYYY-MM-DD`) in addition to an event timestamp. This preserves the day the user intended even if their timezone changes later.
 

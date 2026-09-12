@@ -33,6 +33,7 @@ data class UserProfileEntity(
     val googleAccountEmail: String? = null,
     val programStartDate: String,
     val createdAt: Long,
+    @androidx.room.ColumnInfo(defaultValue = "45") val sessionMinutes: Int = 45,
 )
 
 @Entity(
@@ -133,6 +134,20 @@ data class WorkoutTemplateEntity(
     val rewardXp: Int,
     val estimatedMinutes: Int,
     val isRecovery: Boolean = false,
+    @androidx.room.ColumnInfo(defaultValue = "1") val active: Boolean = true,
+)
+
+@Entity(tableName = "workout_day_override")
+data class WorkoutDayOverrideEntity(@PrimaryKey val localDate: String, val templateId: String, val changedAt: Long)
+
+@Entity(tableName = "system_proposal")
+data class SystemProposalEntity(
+    @PrimaryKey val id: String,
+    val payload: String,
+    val summary: String,
+    val fingerprint: String,
+    val createdAt: Long,
+    val status: String = "PENDING",
 )
 
 @Entity(
@@ -225,6 +240,7 @@ data class QuestEntity(
     val target: Double,
     val rewardXp: Int,
     val active: Boolean = true,
+    @androidx.room.ColumnInfo(defaultValue = "'EVERY_DAY'") val frequency: String = "EVERY_DAY",
 )
 
 @Entity(

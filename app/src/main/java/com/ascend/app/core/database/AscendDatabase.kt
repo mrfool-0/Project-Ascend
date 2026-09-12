@@ -17,8 +17,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         QuestEntity::class, QuestCompletionEntity::class, XpTransactionEntity::class,
         AchievementEntity::class, UnlockedAchievementEntity::class, DailySummaryEntity::class,
         SystemMessageEntity::class,
+        WorkoutDayOverrideEntity::class, SystemProposalEntity::class,
     ],
-    version = 4,
+    version = 6,
     exportSchema = true,
 )
 abstract class AscendDatabase : RoomDatabase() {
@@ -29,7 +30,7 @@ abstract class AscendDatabase : RoomDatabase() {
 
         fun create(context: Context): AscendDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(context.applicationContext, AscendDatabase::class.java, "ascend.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                 .build()
                 .also { instance = it }
         }
@@ -67,6 +68,22 @@ abstract class AscendDatabase : RoomDatabase() {
         private val MIGRATION_3_4 = object : Migration(3, 4) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE user_profile ADD COLUMN trainingSplit TEXT NOT NULL DEFAULT 'AUTO'")
+            }
+        }
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE user_profile ADD COLUMN sessionMinutes INTEGER NOT NULL DEFAULT 45")
+                db.execSQL("ALTER TABLE workout_template ADD COLUMN active INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("CREATE TABLE IF NOT EXISTS workout_day_override (localDate TEXT NOT NULL PRIMARY KEY, templateId TEXT NOT NULL, changedAt INTEGER NOT NULL)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS system_proposal (id TEXT NOT NULL PRIMARY KEY, payload TEXT NOT NULL, summary TEXT NOT NULL, fingerprint TEXT NOT NULL, createdAt INTEGER NOT NULL, status TEXT NOT NULL)")
+                db.execSQL("UPDATE user_profile SET focusAreas = 'FULL_BODY' WHERE ',' || focusAreas || ',' LIKE '%,FULL_BODY,%'")
+            }
+        }
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE quest ADD COLUMN frequency TEXT NOT NULL DEFAULT 'EVERY_DAY'")
+                db.execSQL("UPDATE quest SET frequency = 'WEEKDAYS' WHERE id LIKE 'custom_%' AND description LIKE '%weekdays%'")
+                db.execSQL("UPDATE quest SET frequency = 'THREE_TIMES_WEEKLY' WHERE id LIKE 'custom_%' AND description LIKE '%three times%'")
             }
         }
     }

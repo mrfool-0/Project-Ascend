@@ -6,6 +6,16 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class SystemCommandParserTest {
+    @Test fun `quantity update preserves identity and refuses ambiguous or negated requests`() {
+        val habit = com.ascend.app.core.database.HabitEntity("read", "Read", "NUMBER", 10.0, "pages", "NORMAL", "EVERY_DAY", createdAt = 0L)
+        val action = SystemCommandParser.parseHabitUpdate("Change my read habit from 10 pages to 15 pages daily", listOf(habit))!!
+        assertEquals("read", action.entityId)
+        assertEquals(15.0, action.target)
+        assertNull(SystemCommandParser.parseHabitUpdate("Change my read habit to 15 pages on weekdays", listOf(habit)))
+        assertNull(SystemCommandParser.parseHabitUpdate("Don't change my read habit to 15 pages", listOf(habit)))
+        assertNull(SystemCommandParser.parseHabitUpdate("Change my read habit to 15 pages", listOf(habit, habit.copy(id = "other"))))
+        assertNull(SystemCommandParser.parse("Don't add a daily reading habit"))
+    }
     @Test fun `explicit habit command becomes a scheduled habit action`() {
         val action = SystemCommandParser.parse("Add a daily habit to walk 8000 steps")!!
         assertEquals(SystemActionType.CREATE_HABIT, action.type)

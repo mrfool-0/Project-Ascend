@@ -54,6 +54,9 @@ fun ProfileSettingsScreen(
     onOpenProgress: () -> Unit,
     onOpenQuests: () -> Unit,
     onProfileImage: (String?) -> Unit,
+    onOpenTraining: () -> Unit = {},
+    googleBusy: Boolean = false,
+    onGoogleLink: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -164,6 +167,8 @@ fun ProfileSettingsScreen(
         item {
             SectionHeader("Your plan")
             Spacer(Modifier.height(10.dp))
+            SystemButton("Open training command center", onOpenTraining, Modifier.fillMaxWidth(), secondary = true)
+            Spacer(Modifier.height(10.dp))
             AscendCard(Modifier.fillMaxWidth()) {
                 PlanLine(Icons.Outlined.Flag, "Goal", profile?.objective?.humanize() ?: "Not set")
                 HorizontalDivider(Modifier.padding(vertical = 12.dp), color = Hairline.copy(.65f))
@@ -212,6 +217,11 @@ fun ProfileSettingsScreen(
         item {
             SectionHeader("Account & privacy")
             Spacer(Modifier.height(10.dp))
+            SystemButton(if (googleBusy) "Connecting…" else if (profile?.googleAccountEmail != null) "Sync Google progress" else "Link Google & save progress",
+                onGoogleLink, Modifier.fillMaxWidth(), enabled = !googleBusy && (context.applicationContext as com.ascend.app.AscendApplication).cloudProgress.isConfigured)
+            Spacer(Modifier.height(8.dp))
+            Text("Optional cloud snapshot of player metrics and recent progress. Workout detail, chat, photos and weekly swaps remain on this device.", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+            Spacer(Modifier.height(12.dp))
             SettingsGroup {
                 SettingsInfoRow(
                     if (profile?.googleAccountEmail != null) Icons.Outlined.CloudDone else Icons.Outlined.CloudOff,
@@ -367,7 +377,8 @@ private fun NotificationSettings(preferences: AppPreferences, onChange: (String,
         NotificationToggle("Morning plan", "morning", preferences.morningNotifications, onChange)
         NotificationToggle("Workout", "workout", preferences.workoutNotifications, onChange)
         NotificationToggle("Nutrition", "nutrition", preferences.nutritionNotifications, onChange)
-        NotificationToggle("Evening review", "evening", preferences.eveningNotifications, onChange)
+        NotificationToggle("20:00 · unfinished quest warning", "evening", preferences.eveningNotifications, onChange)
+        Text("One status-aware warning, only if something remains. Android may delay delivery for battery management.", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
     }
 }
 

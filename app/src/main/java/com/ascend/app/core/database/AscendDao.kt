@@ -44,12 +44,24 @@ interface AscendDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsertBodyMeasurement(value: BodyMeasurementEntity)
     @Query("SELECT * FROM body_measurement ORDER BY localDate") fun observeMeasurements(): Flow<List<BodyMeasurementEntity>>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsertExercises(values: List<ExerciseEntity>)
-    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsertTemplates(values: List<WorkoutTemplateEntity>)
+    @Upsert suspend fun upsertExercises(values: List<ExerciseEntity>)
+    @Upsert suspend fun upsertTemplates(values: List<WorkoutTemplateEntity>)
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsertWorkoutExercises(values: List<WorkoutExerciseEntity>)
     @Query("DELETE FROM workout_exercise WHERE id = :id") suspend fun deleteWorkoutExercise(id: String)
-    @Query("SELECT * FROM workout_template WHERE rotationIndex = :index LIMIT 1") suspend fun templateForIndex(index: Int): WorkoutTemplateEntity?
+    @Query("SELECT * FROM workout_template WHERE active = 1 AND rotationIndex = :index LIMIT 1") suspend fun templateForIndex(index: Int): WorkoutTemplateEntity?
     @Query("SELECT * FROM workout_template ORDER BY rotationIndex") fun observeTemplates(): Flow<List<WorkoutTemplateEntity>>
+    @Query("SELECT * FROM workout_template WHERE id = :id") suspend fun templateById(id: String): WorkoutTemplateEntity?
+    @Query("UPDATE workout_template SET active = 0") suspend fun archiveTemplates()
+    @Query("SELECT * FROM workout_exercise ORDER BY templateId, orderIndex") fun observeAllWorkoutExercises(): Flow<List<WorkoutExerciseEntity>>
+    @Query("SELECT * FROM exercise ORDER BY name") fun observeExercises(): Flow<List<ExerciseEntity>>
+    @Query("SELECT * FROM workout_day_override ORDER BY localDate") fun observeDayOverrides(): Flow<List<WorkoutDayOverrideEntity>>
+    @Upsert suspend fun upsertDayOverrides(values: List<WorkoutDayOverrideEntity>)
+    @Query("DELETE FROM workout_day_override WHERE localDate >= :date") suspend fun clearFutureOverrides(date: String)
+    @Query("DELETE FROM workout_session WHERE id = :id") suspend fun deleteWorkoutSession(id: String)
+    @Query("SELECT * FROM system_proposal WHERE status = 'PENDING' ORDER BY createdAt DESC LIMIT 1") fun observeProposal(): Flow<SystemProposalEntity?>
+    @Query("SELECT * FROM system_proposal WHERE id = :id") suspend fun proposalById(id: String): SystemProposalEntity?
+    @Upsert suspend fun upsertProposal(value: SystemProposalEntity)
+    @Query("UPDATE system_proposal SET status = 'SUPERSEDED' WHERE status = 'PENDING'") suspend fun supersedeProposals()
     @Transaction @Query("SELECT * FROM workout_exercise WHERE templateId = :templateId ORDER BY orderIndex")
     suspend fun templateExercises(templateId: String): List<WorkoutExerciseDetail>
     @Insert suspend fun insertWorkoutSession(value: WorkoutSessionEntity)
@@ -78,7 +90,7 @@ interface AscendDao {
     @Query("SELECT SUM(weightKg * reps) FROM workout_set WHERE completed = 1") fun observeTrainingVolume(): Flow<Double?>
 
     @Query("SELECT * FROM habit WHERE active = 1 ORDER BY createdAt") fun observeHabits(): Flow<List<HabitEntity>>
-    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsertHabit(value: HabitEntity)
+    @Upsert suspend fun upsertHabit(value: HabitEntity)
     @Query("SELECT * FROM habit_completion WHERE localDate = :date") fun observeHabitCompletions(date: String): Flow<List<HabitCompletionEntity>>
     @Query("SELECT * FROM habit_completion WHERE habitId = :habitId ORDER BY localDate") suspend fun habitHistory(habitId: String): List<HabitCompletionEntity>
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsertHabitCompletion(value: HabitCompletionEntity)

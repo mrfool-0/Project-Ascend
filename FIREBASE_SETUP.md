@@ -8,7 +8,7 @@ ASCEND runs completely offline without Firebase. Live Google sign-in and cloud p
 4. Create a Cloud Firestore database.
 5. In **Firebase AI Logic**, choose **Get started**, select the **Gemini Developer API**, and enable it for the project. SYSTEM uses `gemini-3.7-flash` with schema-constrained output.
 6. Download `google-services.json` into `app/google-services.json`. The build enables the Google Services plugin automatically when this file exists.
-7. Copy the **Web application** OAuth client ID into `app/src/main/res/values/strings.xml` as `google_oauth_web_client_id`.
+7. The updated JSON must contain an `oauth_client` with `client_type: 3` (Web application). ASCEND automatically reads the generated `default_web_client_id`; manually copying it is no longer necessary. The optional `google_oauth_web_client_id` string remains an explicit override. Android OAuth still requires the correct signing fingerprints from step 2.
 8. In **Security → App Check**, register the Android app with the Play Integrity provider and its release SHA-256 fingerprint. The release build installs Play Integrity automatically.
 9. Deploy the checked-in owner-only rules before distributing the app:
 
@@ -21,3 +21,11 @@ firebase deploy --only firestore:rules
 Debug builds deliberately use Firebase's App Check debug provider so emulator development remains possible. Launch a debug build, copy the debug token printed by `DebugAppCheckProvider`, and register it under **App Check → Apps → Manage debug tokens**. Treat that token as a secret; never commit it. Before enabling enforcement, monitor valid-request metrics, then enable App Check enforcement for Cloud Firestore, Firebase AI Logic, and Authentication.
 
 The onboarding consent screen clearly separates cloud save from private offline mode. ASCEND uploads a player setup snapshot and compact progress snapshots only after the user chooses Google sign-in. Email addresses are not written into progress documents. Do not weaken the checked-in rules for development convenience in a production project.
+
+## Verification and limits
+
+Profile → Account & privacy supports linking Google after offline onboarding and retrying a progress sync. A successful save is shown only after Firestore acknowledges the write; sign-in alone is not treated as a backup. Full database restore, workout-plan transfer, chat backup and profile-photo cloud storage are not implemented. Keep the existing installation to retain those local records.
+
+Run `./gradlew signingReport` and register the actual debug certificate for this APK; release/Play builds need their own certificates. Test sign-in and sync on an account-enabled physical device before distribution. A downloaded web OAuth client is necessary but does not prove the Android certificate, provider enablement, App Check or Firestore deployment is correct.
+
+SYSTEM sends the current message, recent conversation and calibrated fitness context to Firebase AI Logic. The model proposes bounded actions; it never writes to Room directly. Changes require a visible confirmation, expire after 15 minutes, and are rejected if the underlying plan changed. Offline fallback is rule-based, not equivalent to the live model.

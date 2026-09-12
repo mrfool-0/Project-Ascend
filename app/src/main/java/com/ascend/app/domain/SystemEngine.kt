@@ -33,6 +33,7 @@ data class SystemContext(
     val averageCompletionLast7: Int = 0,
     val workoutsLast7: Int = 0,
     val recentPlayerMessages: List<String> = emptyList(),
+    val actionContext: String = "",
 )
 
 data class SystemExercisePrescription(
@@ -377,7 +378,7 @@ object SystemEngine {
             Intent.RECOVERY -> listOf("recover", "recovery", "sleep", "sore", "fatigue", "exhausted", "rest", "sick", "fever", "deload")
             Intent.PROGRESS -> listOf("progress", "streak", "score", "results", "doing well", "improving")
             Intent.MOTIVATION -> listOf("motivat", "lazy", "discipline", "procrastinat", "quit", "no drive", "no energy", "excuse", "push me")
-            Intent.EMOTION -> listOf("sad", "depressed", "anxious", "overwhelmed", "stressed", "hate myself", "bad day", "feel terrible", "frustrated")
+            Intent.EMOTION -> listOf("sad", "depressed", "anxious", "overwhelmed", "stressed", "hate myself", "bad day", "day was bad", "feel terrible", "frustrated", "breakup", "heartbroken", "grieving")
             Intent.PLATEAU -> listOf("plateau", "stuck", "not losing", "not gaining", "no progress")
             Intent.WEIGHT_GOAL -> listOf("lose weight", "gain weight", "gain muscle", "fat loss", "bulk", "cut", "recomposition", "body fat")
             Intent.APP_HELP -> listOf("how do i log", "where is", "how to use", "add food", "food catalog", "app help", "delete log")
