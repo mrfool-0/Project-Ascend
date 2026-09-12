@@ -24,6 +24,10 @@ The onboarding consent screen clearly separates cloud save from private offline 
 
 ## Verification and limits
 
+Version 1.8.1 uses `GetSignInWithGoogleOption` for both explicit Google buttons, rather than the bottom-sheet `GetGoogleIdOption`. This supports the dedicated interactive account-selection flow. A `NoCredentialException` does not by itself prove that the device has no Google account; verify the app's package, actual APK signing SHA-1, Web OAuth client and Play services before blaming the account. Cancellation is reported separately from configuration failure. See [Android's button-flow documentation](https://developer.android.com/identity/sign-in/credential-manager-siwg-implementation#create-si-w-g).
+
+On 12 September 2026, the project's Android SHA table was verified empty. With the owner's approval, the current development APK's SHA-1 and SHA-256 were registered and a fresh configuration downloaded. It now includes an Android OAuth client for `com.ascend.app` and the matching certificate. Google provider status was verified Enabled. These are backend configuration checks, not proof of a completed device login. Future signing certificates need their own registration.
+
 Profile → Account & privacy supports linking Google after offline onboarding and retrying a progress sync. A successful save is shown only after Firestore acknowledges the write; sign-in alone is not treated as a backup. Full database restore, workout-plan transfer, chat backup and profile-photo cloud storage are not implemented. Keep the existing installation to retain those local records.
 
 Run `./gradlew signingReport` and register the actual debug certificate for this APK; release/Play builds need their own certificates. Test sign-in and sync on an account-enabled physical device before distribution. A downloaded web OAuth client is necessary but does not prove the Android certificate, provider enablement, App Check or Firestore deployment is correct.

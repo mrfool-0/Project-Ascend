@@ -734,7 +734,7 @@ private fun TypewriterText(text: String, key: Any) {
 @Composable
 private fun CloudSavePage(profile: OnboardingProfile, onComplete: (OnboardingProfile) -> Unit) {
     val context = LocalContext.current
-    val activity = context as? Activity
+    val activity = androidx.activity.compose.LocalActivity.current
     val app = context.applicationContext as AscendApplication
     val scope = rememberCoroutineScope()
     var working by remember { mutableStateOf(false) }
@@ -755,10 +755,14 @@ private fun CloudSavePage(profile: OnboardingProfile, onComplete: (OnboardingPro
                 if (activity == null) { resultMessage = "Google sign-in is unavailable in this context."; return@SystemButton }
                 working = true; resultMessage = null
                 scope.launch {
-                    app.cloudProgress.signInAndCreateBackup(activity, profile)
-                        .onSuccess { email -> onComplete(profile.copy(googleAccountEmail = email)) }
-                        .onFailure { resultMessage = it.message ?: "Google sign-in failed" }
-                    working = false
+                    try {
+                        app.cloudProgress.signInAndCreateBackup(activity, profile)
+                            .onSuccess { email -> onComplete(profile.copy(googleAccountEmail = email)) }
+                            .onFailure {
+                                if (it is kotlinx.coroutines.CancellationException) throw it
+                                resultMessage = it.message ?: "Google sign-in failed"
+                            }
+                    } finally { working = false }
                 }
             }, Modifier.fillMaxWidth(), enabled = !working && app.cloudProgress.isConfigured,
         )

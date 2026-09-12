@@ -4,15 +4,15 @@ import android.app.Activity
 import android.content.Context
 import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
-import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.NoCredentialException
 import androidx.credentials.exceptions.GetCredentialProviderConfigurationException
+import androidx.credentials.exceptions.GetCredentialCancellationException
+import androidx.credentials.exceptions.GetCredentialException
 import com.ascend.app.OnboardingProfile
 import com.ascend.app.R
 import com.ascend.app.core.database.DailySummaryEntity
 import com.ascend.app.core.database.NutritionTargetEntity
 import com.ascend.app.core.database.UserProfileEntity
-import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential.Companion.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
 import com.google.android.gms.tasks.Task
@@ -40,10 +40,16 @@ class GoogleProgressService(private val context: Context) {
 
     suspend fun signInAndCreateBackup(activity: Activity, input: OnboardingProfile): Result<String> = runCatching {
         val user = authenticate(activity)
-        FirebaseFirestore.getInstance().collection("players").document(user.uid)
-            .collection("progress").document("onboarding")
-            .set(input.toCloudMap() + mapOf("syncedAt" to FieldValue.serverTimestamp()))
-            .awaitResult()
+        try {
+            FirebaseFirestore.getInstance().collection("players").document(user.uid)
+                .collection("progress").document("onboarding")
+                .set(input.toCloudMap() + mapOf("syncedAt" to FieldValue.serverTimestamp()))
+                .awaitResult()
+        } catch (error: Exception) {
+            FirebaseAuth.getInstance().signOut()
+            if (error is kotlinx.coroutines.CancellationException) throw error
+            throw IllegalStateException("Google authenticated successfully, but the cloud snapshot could not be saved (CLOUD_SAVE_FAILED). Your setup is still here. Retry, or continue offline while the Firestore connection and permissions are checked.", error)
+        }
         user.email ?: error("Google account did not supply an email address.")
     }
 
@@ -51,18 +57,17 @@ class GoogleProgressService(private val context: Context) {
         check(isConfigured) {
             "Google save needs the Firebase configuration file and OAuth web client ID. You can continue offline safely."
         }
-        val googleOption = GetGoogleIdOption.Builder()
-            .setFilterByAuthorizedAccounts(false)
-            .setAutoSelectEnabled(false)
-            .setServerClientId(requireNotNull(webClientId))
-            .build()
-        val request = GetCredentialRequest.Builder().addCredentialOption(googleOption).build()
+        val request = GoogleSignInRequest.create(requireNotNull(webClientId))
         val result = try {
             CredentialManager.create(context).getCredential(activity, request)
         } catch (error: NoCredentialException) {
-            throw IllegalStateException("No eligible Google account was found. Add an account to this device and try again.", error)
+            throw IllegalStateException("Google could not start account selection (GOOGLE_NO_CREDENTIAL). Retry with updated Google Play services. If it continues, this build's package/signing certificate and OAuth configuration need verification; your local progress is safe.", error)
+        } catch (error: GetCredentialCancellationException) {
+            throw IllegalStateException("Google sign-in was canceled. Tap Sign in with Google when you're ready; your progress is unchanged.", error)
         } catch (error: GetCredentialProviderConfigurationException) {
             throw IllegalStateException("Google sign-in needs an available Google Play services credential provider. Update Play services or use a Google-enabled device; your local progress is safe.", error)
+        } catch (error: GetCredentialException) {
+            throw IllegalStateException("Google account selection failed (GOOGLE_PROVIDER_ERROR). Retry once. If it persists, share this code so the app's OAuth setup can be checked.", error)
         }
         val credential = result.credential
         check(credential is CustomCredential && credential.type == TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
@@ -85,7 +90,7 @@ class GoogleProgressService(private val context: Context) {
         lifetimeXp: Int,
         summaries: List<DailySummaryEntity>,
     ) {
-        if (!isConfigured) return
+        if (!isConfigured || profile.googleAccountEmail.isNullOrBlank()) return
         val user = runCatching { FirebaseAuth.getInstance().currentUser }.getOrNull()
             ?.takeIf { !it.isAnonymous && it.providerData.any { provider -> provider.providerId == GoogleAuthProvider.PROVIDER_ID } }
             ?: return
