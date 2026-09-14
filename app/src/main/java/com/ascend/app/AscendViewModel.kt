@@ -58,7 +58,19 @@ class AscendViewModel(application: Application, private val repository: AscendRe
     fun swapDays(first: LocalDate, second: LocalDate) = changeTraining { repository.training.swap(first, second) }
     fun editPlanExercise(input: PlanExerciseEdit) = changeTraining { repository.training.editExercise(input.templateId, input.linkId, input.name, input.sets, input.min, input.max, input.remove) }
     fun confirmProposal(id: String, accept: Boolean) = changeTraining(if (accept) "SYSTEM // Change confirmed" else "SYSTEM // Plan kept unchanged") { repository.confirmSystemProposal(id, accept) }
-    fun linkGoogle(activity: android.app.Activity) = changeTraining { repository.linkGoogle(activity) }
+    private val _googleBusy = MutableStateFlow(false)
+    val googleBusy = _googleBusy.asStateFlow()
+    fun linkGoogle(activity: android.app.Activity) {
+        if (_googleBusy.value) return
+        _googleBusy.value = true
+        viewModelScope.launch {
+            try {
+                _events.emit(UiEvent.Message(repository.linkGoogle(activity).message))
+            } catch (cancelled: CancellationException) { throw cancelled
+            } catch (failure: Exception) { _events.emit(UiEvent.Message(failure.safeMessage()))
+            } finally { _googleBusy.value = false }
+        }
+    }
     private fun changeTraining(success: String = "SYSTEM // Changes saved", action: suspend () -> Unit) {
         if (_trainingBusy.value) return
         _trainingBusy.value = true

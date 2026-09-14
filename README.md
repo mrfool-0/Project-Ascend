@@ -60,6 +60,8 @@ The debug APK is generated at `app/build/outputs/apk/debug/app-debug.apk`.
 
 Version 1.8's architecture changes, verification and remaining setup requirements are recorded in [the training and SYSTEM audit](docs/TRAINING_SYSTEM_AUDIT.md). Earlier design decisions are recorded in [the interface audit](docs/PREMIUM_UI_AUDIT.md).
 
+Version 1.8.2 fixes the post-account-selection hang: bounded authentication and backup waits, distinct connection stages, persistent backup status, and non-blocking local logging. The approved Mumbai Firestore database and private rules are now configured. See [Firebase setup and verification](FIREBASE_SETUP.md) for tested behavior and remaining physical-device verification.
+
 ## Architecture
 
 ```text

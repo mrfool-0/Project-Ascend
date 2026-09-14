@@ -264,7 +264,7 @@ private fun MainNavigation(viewModel: AscendViewModel, preferences: com.ascend.a
                         viewModel::updateMealSections,
                         { navController.navigate("progress") }, { navController.navigate("quests") }, viewModel::updateProfileImage,
                         onOpenTraining = { navController.navigate("training") },
-                        googleBusy = trainingBusy,
+                        googleBusy = viewModel.googleBusy.collectAsStateWithLifecycle().value,
                         onGoogleLink = { activity?.let(viewModel::linkGoogle) },
                     )
                 }

@@ -212,17 +212,15 @@ class AscendRepository(
         refreshDailyState(LocalDate.now())
     }
 
-    suspend fun linkGoogle(activity: android.app.Activity) {
+    suspend fun linkGoogle(activity: android.app.Activity): com.ascend.app.cloud.CloudBackupResult {
         val profile = dao.observeProfile().first() ?: error("Create a player first.")
         val target = dao.observeNutritionTarget().first() ?: error("Nutrition targets unavailable.")
-        try {
-            val user = cloudProgress.authenticate(activity)
-            val updated = profile.copy(googleAccountEmail = user.email ?: error("No email returned by Google."))
+        val user = cloudProgress.authenticate(activity)
+        val updated = profile.copy(googleAccountEmail = user.email ?: error("No email returned by Google."))
+        // Linking is a local, authenticated action. Cloud availability must not roll it back.
+        dao.upsertProfile(updated)
+        return com.ascend.app.cloud.confirmBackup {
             cloudProgress.syncProgress(updated, target, dao.observeLifetimeXp().first(), dao.observeDailySummaries().first())
-            dao.upsertProfile(updated)
-        } catch (failure: Exception) {
-            com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
-            throw failure
         }
     }
 
@@ -758,7 +756,7 @@ class AscendRepository(
         val profile = dao.observeProfile().first()
         if (profile != null) {
             // Local logging succeeds even if cloud is unavailable. Profile offers an explicit retry.
-            try { cloudProgress.syncProgress(profile, target, dao.observeLifetimeXp().first(), dao.observeDailySummaries().first()) }
+            try { cloudProgress.syncProgress(profile, target, dao.observeLifetimeXp().first(), dao.observeDailySummaries().first(), awaitConfirmation = false) }
             catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { /* Offline data remains authoritative. */ }
         }

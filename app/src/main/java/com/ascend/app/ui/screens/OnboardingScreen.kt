@@ -739,6 +739,8 @@ private fun CloudSavePage(profile: OnboardingProfile, onComplete: (OnboardingPro
     val scope = rememberCoroutineScope()
     var working by remember { mutableStateOf(false) }
     var resultMessage by remember { mutableStateOf<String?>(null) }
+    var linkedEmail by remember { mutableStateOf<String?>(null) }
+    val signInStage by app.cloudProgress.stage.collectAsState()
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         AscendCard(Modifier.fillMaxWidth(), highlighted = true, accent = EnergyCyan) {
             Icon(Icons.Outlined.CloudDone, null, tint = EnergyCyan, modifier = Modifier.size(38.dp)); Spacer(Modifier.height(10.dp))
@@ -750,14 +752,18 @@ private fun CloudSavePage(profile: OnboardingProfile, onComplete: (OnboardingPro
             Spacer(Modifier.height(8.dp)); Text("Health and progress data is sensitive. Google sign-in is optional; local mode keeps it only on this device.", color = TextSecondary)
         }
         SystemButton(
-            if (working) "Contacting Google…" else if (app.cloudProgress.isConfigured) "Sign in with Google" else "Google save unavailable",
+            if (working) signInStage?.label ?: "Finishing connection…" else if (app.cloudProgress.isConfigured) "Sign in with Google" else "Google save unavailable",
             {
                 if (activity == null) { resultMessage = "Google sign-in is unavailable in this context."; return@SystemButton }
                 working = true; resultMessage = null
                 scope.launch {
                     try {
                         app.cloudProgress.signInAndCreateBackup(activity, profile)
-                            .onSuccess { email -> onComplete(profile.copy(googleAccountEmail = email)) }
+                            .onSuccess { result ->
+                                linkedEmail = result.email
+                                if (result.backup.saved) onComplete(profile.copy(googleAccountEmail = result.email))
+                                else resultMessage = result.backup.message
+                            }
                             .onFailure {
                                 if (it is kotlinx.coroutines.CancellationException) throw it
                                 resultMessage = it.message ?: "Google sign-in failed"
@@ -766,7 +772,11 @@ private fun CloudSavePage(profile: OnboardingProfile, onComplete: (OnboardingPro
                 }
             }, Modifier.fillMaxWidth(), enabled = !working && app.cloudProgress.isConfigured,
         )
-        SystemButton("CONTINUE IN PRIVATE OFFLINE MODE", { onComplete(profile) }, Modifier.fillMaxWidth(), secondary = true, enabled = !working)
+        SystemButton(
+            if (linkedEmail != null) "CONTINUE · BACKUP PENDING" else "CONTINUE IN PRIVATE OFFLINE MODE",
+            { onComplete(profile.copy(googleAccountEmail = linkedEmail)) }, Modifier.fillMaxWidth(), secondary = true, enabled = !working,
+        )
+        if (working) Text("Account verification is limited to 20 seconds; cloud confirmation to 12 seconds. A cloud outage will not erase your setup.", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
         resultMessage?.let { Text(it, color = EnergyAmber, style = MaterialTheme.typography.bodyMedium) }
         if (!app.cloudProgress.isConfigured) Text("Google save is not configured for this build. You can save your progress privately on this device.", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
         QuoteCard("Protect the progress, but never confuse the record with the work. You are the work.")

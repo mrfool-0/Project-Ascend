@@ -59,6 +59,9 @@ fun ProfileSettingsScreen(
     onGoogleLink: () -> Unit = {},
 ) {
     val context = LocalContext.current
+    val cloud = (context.applicationContext as com.ascend.app.AscendApplication).cloudProgress
+    val signInStage by cloud.stage.collectAsState()
+    val backupStatus by cloud.backupStatus.collectAsState()
     val scope = rememberCoroutineScope()
     var imageError by remember { mutableStateOf<String?>(null) }
     var expanded by remember { mutableStateOf<String?>(null) }
@@ -217,15 +220,21 @@ fun ProfileSettingsScreen(
         item {
             SectionHeader("Account & privacy")
             Spacer(Modifier.height(10.dp))
-            SystemButton(if (googleBusy) "Connecting…" else if (profile?.googleAccountEmail != null) "Sync Google progress" else "Link Google & save progress",
-                onGoogleLink, Modifier.fillMaxWidth(), enabled = !googleBusy && (context.applicationContext as com.ascend.app.AscendApplication).cloudProgress.isConfigured)
+            SystemButton(if (googleBusy) signInStage?.label ?: "Finishing connection…" else if (profile?.googleAccountEmail != null) "Sync Google progress" else "Link Google & save progress",
+                onGoogleLink, Modifier.fillMaxWidth(), enabled = !googleBusy && cloud.isConfigured)
             Spacer(Modifier.height(8.dp))
             Text("Optional cloud snapshot of player metrics and recent progress. Workout detail, chat, photos and weekly swaps remain on this device.", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+            if (profile?.googleAccountEmail != null) {
+                Spacer(Modifier.height(8.dp))
+                val matchingBackup = backupStatus.email.equals(profile.googleAccountEmail, ignoreCase = true)
+                Text(if (matchingBackup) backupStatus.message else "Google linked. No cloud backup confirmed yet; tap Sync Google progress.",
+                    style = MaterialTheme.typography.bodySmall, color = if (matchingBackup && backupStatus.saved) EnergyEmerald else EnergyAmber)
+            }
             Spacer(Modifier.height(12.dp))
             SettingsGroup {
                 SettingsInfoRow(
-                    if (profile?.googleAccountEmail != null) Icons.Outlined.CloudDone else Icons.Outlined.CloudOff,
-                    "Progress storage",
+                    if (profile?.googleAccountEmail != null) Icons.Outlined.AccountCircle else Icons.Outlined.CloudOff,
+                    "Google account",
                     profile?.googleAccountEmail ?: "Stored only on this device",
                     if (profile?.googleAccountEmail != null) EnergyEmerald else EnergyCyan,
                 )
