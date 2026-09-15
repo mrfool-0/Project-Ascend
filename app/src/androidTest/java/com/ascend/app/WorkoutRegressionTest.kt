@@ -10,6 +10,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.ascend.app.core.database.*
 import com.ascend.app.ui.components.QuestLaunchOverlay
 import com.ascend.app.ui.screens.WorkoutScreen
+import com.ascend.app.ui.screens.HabitsScreen
 import com.ascend.app.ui.theme.*
 import org.junit.Assert.*
 import org.junit.Rule
@@ -27,6 +28,33 @@ class WorkoutRegressionTest {
     private val detail = WorkoutExerciseDetail(link, exercise)
     private val initialSet = WorkoutSetEntity("qa_set", session.id, exercise.id, 1, 0.0, 0, false)
     private val launch = WorkoutLaunch(session, template, listOf(detail), listOf(initialSet))
+
+    @Test fun habitRemovalWorksEvenOnAnOffDayAndRequiresConfirmation() {
+        val habit = HabitEntity("habit", "Treadmill habit", "DURATION", 10.0, "min", "NORMAL", "WEEKDAYS", createdAt = 0L)
+        var removed = false
+        ui.setContent { AscendTheme { HabitsScreen(DashboardState(), listOf(habit), { _, _ -> }, {}, { removed = true }) } }
+        ui.onNodeWithContentDescription("Remove Treadmill habit").performScrollTo().performClick()
+        ui.onNodeWithText("Remove habit?").assertIsDisplayed()
+        capture("habit-removal")
+        ui.onNodeWithText("Keep habit").performClick()
+        ui.runOnIdle { assertFalse(removed) }
+        ui.onNodeWithContentDescription("Remove Treadmill habit").performClick()
+        ui.onNodeWithText("Remove habit", substring = false).performClick()
+        ui.runOnIdle { assertTrue(removed) }
+    }
+
+    @Test fun treadmillUsesMinutesNotWeightOrRepetitionInputs() {
+        var loggedSeconds = 0
+        val timedDetail = detail.copy(link = link.copy(durationSeconds = 600), exercise = exercise.copy(name = "Treadmill", muscleGroup = "Cardio"))
+        ui.setContent { AscendTheme { WorkoutScreen(launch.copy(exercises = listOf(timedDetail)), listOf(initialSet), {},
+            { _, weight, value, done -> assertEquals(0.0, weight, 0.0); if (done) loggedSeconds = value }, {}, {}, {}) } }
+        ui.onNodeWithText("KG").assertDoesNotExist()
+        ui.onNodeWithText("REPS").assertDoesNotExist()
+        ui.onNodeWithText("Minutes completed").performTextInput("10")
+        ui.onNodeWithContentDescription("Complete timed cardio").performClick()
+        ui.runOnIdle { assertEquals(600, loggedSeconds) }
+        capture("treadmill-minutes")
+    }
 
     @Test fun zeroLoadSetIsSavedAndLockedUntilExplicitlyUnlocked() {
         var set by mutableStateOf(initialSet)

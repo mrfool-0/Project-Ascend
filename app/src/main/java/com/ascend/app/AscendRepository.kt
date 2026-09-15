@@ -142,7 +142,7 @@ class AscendRepository(
                 nutrition = totals,
                 waterMl = statsState.summaries.firstOrNull { it.localDate == today.toString() }?.waterMl ?: 0,
                 habits = scheduledHabits,
-                habitCompletions = coreState.completions.filter { it.completed }.map { it.habitId }.toSet(),
+                habitCompletions = coreState.completions.filter { completion -> completion.completed && coreState.habits.any { it.id == completion.habitId } }.map { it.habitId }.toSet(),
                 weights = statsState.weights,
                 level = LevelEngine.fromLifetimeXp(statsState.xp),
                 lifetimeXp = statsState.xp,
@@ -226,7 +226,7 @@ class AscendRepository(
 
     suspend fun seedCoreData() {
         if (dao.observeTemplates().first().isEmpty()) seedWorkoutProgram()
-        if (dao.observeHabits().first().isEmpty()) {
+        if (dao.habitCount() == 0) {
             listOf(
                 HabitEntity(id(), "Read 20 minutes", HabitType.DURATION.name, 20.0, "min", HabitDifficulty.NORMAL.name, "DAILY", createdAt = now()),
                 HabitEntity(id(), "10 minutes mobility", HabitType.DURATION.name, 10.0, "min", HabitDifficulty.NORMAL.name, "DAILY", createdAt = now() + 1),
@@ -290,6 +290,7 @@ class AscendRepository(
                     sets = detail.link.targetSets,
                     minReps = detail.link.minReps,
                     maxReps = detail.link.maxReps,
+                    durationSeconds = detail.link.durationSeconds,
                 )
             }
         }.orEmpty()
@@ -332,30 +333,40 @@ class AscendRepository(
             tone,
         )
         val safetyOverride = SystemEngine.requiresImmediateSafetyResponse(clean)
-        val aiResponse = if (!safetyOverride && systemAi.isConfigured) {
+        val directEdit = SystemEditRouter.resolve(clean, dao.observeHabits().first(),
+            conversationHistory.lastOrNull().takeIf { conversation.lastOrNull()?.message?.contains("How many minutes of treadmill", true) == true })
+        val greeting = Regex("^(hi+|hello+|hey+)( system)?[!. ]*$", RegexOption.IGNORE_CASE).matches(clean)
+        val aiResponse = if (!safetyOverride && directEdit == null && !greeting && systemAi.isConfigured) {
             withTimeoutOrNull(30_000) { systemAi.respond(clean, systemContext, tone, conversation) }
         } else {
             null
         }
         val aiReply = aiResponse?.getOrNull()
-        if (!safetyOverride && aiResponse == null && systemAi.isConfigured && com.ascend.app.BuildConfig.DEBUG) android.util.Log.w("AscendSystem", "AI request timed out")
-        val systemReply = aiReply
+        if (!safetyOverride && directEdit == null && !greeting && aiResponse == null && systemAi.isConfigured) systemAi.reportTimeout()
+        val systemReply = directEdit ?: aiReply
             ?: SystemReply(localResponse, SystemCommandParser.parse(clean) ?: SystemAction(SystemActionType.NONE))
         // Model output is a proposal, never write authority. A later explicit confirmation is required.
         val authorizedAction = if (safetyOverride || !SystemCommandParser.mayPropose(clean)) null else
-            SystemCommandParser.parseSwap(clean, date) ?: aiReply?.action?.takeIf { it.type != SystemActionType.NONE } ?: SystemCommandParser.parseHabitUpdate(clean, dao.observeHabits().first()) ?: SystemCommandParser.parse(clean)
+            if (directEdit != null) directEdit.action.takeIf { it.type != SystemActionType.NONE }
+            else (SystemCommandParser.parseSwap(clean, date) ?: aiReply?.action?.takeIf { it.type != SystemActionType.NONE } ?: SystemCommandParser.parseHabitUpdate(clean, dao.observeHabits().first()) ?: SystemCommandParser.parse(clean))
+                ?.takeIf { SystemEditRouter.permits(clean, it) }
         val actionReceipt = authorizedAction?.let { action ->
             runCatching { proposeSystemAction(action, date); "CHANGE READY // Review the confirmation card. Nothing has changed yet." }
                 .getOrElse { "NO CHANGE // " + (it.message ?: "The proposal could not be validated.") }
         }
-        val coaching = if (aiReply == null && actionReceipt != null) {
+        val coaching = if (directEdit != null) directEdit.message else if (aiReply == null && actionReceipt != null) {
             if (actionReceipt.startsWith("CHANGE READY")) "Request understood. Review the exact change below and confirm when ready."
             else "Your request needs an adjustment before it can be applied."
+        } else if (SystemEditRouter.isWorkoutEdit(clean) && authorizedAction == null && aiReply == null) {
+            "I understand this is a workout edit, not a habit. Tell me the exercise and protocol, or say ‘set all sessions to 3 sets’ / ‘add 10 minutes of treadmill to all sessions’. No changes have been made."
+        } else if (aiReply != null && !SystemEditRouter.permits(clean, aiReply.action)) {
+            "That request is a workout change. I will not create a habit or silently change only one session. Which exercise and prescription should be applied across your protocols? Nothing has changed."
         } else systemReply.message
         val response = listOfNotNull(coaching, actionReceipt).joinToString("\n\n")
         val responseRole = when {
             safetyOverride -> "SYSTEM_SAFETY"
             aiResponse?.isSuccess == true -> "SYSTEM_AI"
+            directEdit != null || greeting -> "SYSTEM_ACTION"
             else -> "SYSTEM_LOCAL"
         }
         delay(420)
@@ -382,7 +393,7 @@ class AscendRepository(
         repeat(7) { offset -> val day = training.day(WeekRules.monday(date).plusDays(offset.toLong())); appendLine(day.date.toString() + ": " + day.template?.name + if (day.completed) " [COMPLETED / LOCKED]" else "") }
         dao.observeTemplates().first().filter { it.active }.forEach { template ->
             appendLine("TEMPLATE ID " + template.id + ": " + template.name)
-            dao.templateExercises(template.id).forEach { ex -> appendLine("  LINK ID " + ex.link.id + ": " + ex.exercise.name + " | " + ex.link.targetSets + " sets | " + ex.link.minReps + "-" + ex.link.maxReps + " reps") }
+            dao.templateExercises(template.id).forEach { ex -> appendLine("  LINK ID " + ex.link.id + ": " + ex.exercise.name + " | " + if (ex.link.durationSeconds > 0) "${ex.link.durationSeconds} seconds (timed cardio)" else "${ex.link.targetSets} sets | ${ex.link.minReps}-${ex.link.maxReps} reps") }
         }
         dao.observeHabits().first().forEach { appendLine("HABIT ID " + it.id + ": " + it.name + " | target " + it.target + " " + it.unit + " | " + it.frequency + " | " + it.difficulty) }
     }
@@ -401,6 +412,16 @@ class AscendRepository(
     private suspend fun describeAction(a: SystemAction, date: LocalDate): String {
         require(a.target.isFinite() && a.target in .1..100_000.0 && a.unit.length in 1..20) { "Invalid target or unit." }
         return when (a.type) {
+            SystemActionType.REMOVE_HABIT -> {
+                val habit = dao.observeHabits().first().singleOrNull { it.id == a.entityId } ?: error("Choose an active habit.")
+                "Remove ${habit.name} from active habits and future reminders. Past completions and earned XP stay intact."
+            }
+            SystemActionType.SET_ALL_STRENGTH_SETS, SystemActionType.ADD_EXERCISE_ALL -> {
+                val templates = training.bulkTargets(a)
+                require(templates.isNotEmpty()) { "Your protocols already match this request; nothing needs changing." }
+                val change = if (a.type == SystemActionType.SET_ALL_STRENGTH_SETS) "Set strength exercises to ${a.sets} sets; keep their rep ranges." else "Add ${a.name} · ${a.durationSeconds / 60} min per session."
+                "$change\n${templates.size} protocols: ${templates.joinToString { it.name }}\nRecovery days, started sessions and past logs stay unchanged. Future unstarted sessions use the updated plan."
+            }
             SystemActionType.SWAP_DAYS -> {
                 val first = LocalDate.parse(a.fromDate); val second = LocalDate.parse(a.toDate)
                 WeekRules.validateSwap(first, second, date)
@@ -422,9 +443,11 @@ class AscendRepository(
                 require(template.active && !template.isRecovery) { "Choose an active training protocol." }
                 val old = if (a.type != SystemActionType.ADD_EXERCISE) dao.templateExercises(a.templateId).find { it.link.id == a.entityId } ?: error("Choose an existing exercise.") else null
                 if (a.type != SystemActionType.REMOVE_EXERCISE) require(WorkoutInputRules.isValidExercise(a.name, a.sets, a.minReps, a.maxReps)) { "Invalid exercise prescription." }
+                val duration = a.durationSeconds.takeIf { it > 0 } ?: old?.link?.durationSeconds ?: 0
+                require(duration == 0 || duration in 60..7200) { "Timed cardio must be 1–120 minutes." }
                 template.name + "\n" + when (a.type) {
                     SystemActionType.REMOVE_EXERCISE -> "Remove " + old?.exercise?.name
-                    else -> (old?.let { it.exercise.name + " → " } ?: "Add ") + a.name + ": " + a.sets + " × " + a.minReps + "–" + a.maxReps + " reps"
+                    else -> (old?.let { it.exercise.name + " → " } ?: "Add ") + a.name + ": " + if (duration > 0) "${a.sets} × ${duration / 60} min" else "${a.sets} × ${a.minReps}–${a.maxReps} reps"
                 } + "\nFuture unstarted sessions only; existing logs stay intact."
             }
             SystemActionType.NONE -> error("No change was requested.")
@@ -445,6 +468,14 @@ class AscendRepository(
     }
 
     private suspend fun executeSystemAction(action: SystemAction): String = when (action.type) {
+        SystemActionType.REMOVE_HABIT -> {
+            require(dao.archiveHabit(action.entityId) == 1) { "Habit is no longer active." }
+            "HABIT REMOVED // Removed from active habits and future reminders. Past completions and earned XP retained."
+        }
+        SystemActionType.SET_ALL_STRENGTH_SETS, SystemActionType.ADD_EXERCISE_ALL -> {
+            val count = training.applyBulk(action)
+            "PLAN UPDATED // $count protocols updated. " + (if (action.type == SystemActionType.ADD_EXERCISE_ALL) "${action.name}: ${action.durationSeconds / 60} minutes. " else "${action.sets} sets per strength exercise. ") + "Recovery days and recorded sessions unchanged. Open Training to see the updated plan."
+        }
         SystemActionType.CREATE_HABIT -> {
             if (dao.observeHabits().first().any { it.name.equals(action.name, ignoreCase = true) }) {
                 "ACTION SKIPPED // HABIT ALREADY EXISTS: ${action.name.uppercase()}"
@@ -480,7 +511,7 @@ class AscendRepository(
             "HABIT UPDATED // " + action.name + ". Existing completion history retained."
         }
         SystemActionType.ADD_EXERCISE, SystemActionType.UPDATE_EXERCISE, SystemActionType.REMOVE_EXERCISE -> {
-            training.editExercise(action.templateId, action.entityId.takeIf { action.type != SystemActionType.ADD_EXERCISE }, action.name, action.sets, action.minReps, action.maxReps, action.type == SystemActionType.REMOVE_EXERCISE)
+            training.editExercise(action.templateId, action.entityId.takeIf { action.type != SystemActionType.ADD_EXERCISE }, action.name, action.sets, action.minReps, action.maxReps, action.type == SystemActionType.REMOVE_EXERCISE, action.durationSeconds.takeIf { it > 0 })
             "PROTOCOL UPDATED // Future sessions use the revised plan. Started sessions and past logs are unchanged."
         }
     }
@@ -612,6 +643,11 @@ class AscendRepository(
         )
     }
 
+    suspend fun removeHabit(habitId: String) = database.withTransaction {
+        require(dao.archiveHabit(habitId) == 1) { "This habit has already been removed." }
+        dao.supersedeProposals()
+    }
+
     suspend fun setHabitCompletion(habit: HabitEntity, completed: Boolean, value: Double, date: LocalDate) {
         dailySummaryMutex.withLock {
             if (completed) {
@@ -655,14 +691,15 @@ class AscendRepository(
     }
 
     suspend fun updateSet(set: WorkoutSetEntity, weightKg: Double, reps: Int, completed: Boolean): Boolean {
-        require(WorkoutInputRules.isValidSet(weightKg, reps, completed)) { "Use 0–1,500 kg and 1–1,000 reps for a completed set" }
+        val session = dao.workoutSession(set.sessionId) ?: error("Workout session is unavailable")
+        val timed = dao.templateExercises(session.templateId).any { it.exercise.id == set.exerciseId && it.link.durationSeconds > 0 }
+        require(if (timed) reps in (if (completed) 1 else 0)..7200 else WorkoutInputRules.isValidSet(weightKg, reps, completed)) { "Use valid repetitions or 1–120 minutes for a timed block." }
         var isPr = false
-        if (completed && !set.completed && weightKg > 0 && reps > 0) {
+        if (!timed && completed && !set.completed && weightKg > 0 && reps > 0) {
             val history = dao.completedSets(set.exerciseId).map { PerformanceSet(it.weightKg, it.reps) }
             isPr = history.isNotEmpty() && PersonalRecordEngine.detect(PerformanceSet(weightKg, reps), history).isRecord
         }
-        dao.updateWorkoutSet(set.copy(weightKg = weightKg, reps = reps, completed = completed, completedAt = if (completed) now() else null))
-        val session = dao.workoutSession(set.sessionId) ?: error("Workout session is unavailable")
+        dao.updateWorkoutSet(set.copy(weightKg = if (timed) 0.0 else weightKg, reps = if (timed) 0 else reps, durationSeconds = if (timed) reps else 0, completed = completed, completedAt = if (completed) now() else null))
         val exerciseSets = dao.setsForSessionExercise(set.sessionId, set.exerciseId)
         val exerciseSource = "${session.templateId}:${set.exerciseId}"
         val sourceDate = LocalDate.parse(session.localDate)
@@ -717,7 +754,7 @@ class AscendRepository(
         val target = dao.observeNutritionTarget().first() ?: return
         val totals = dao.observeFoodLogs(date.toString()).first().toTotals()
         val habits = dao.observeHabits().first().filter { it.scheduledOn(date) }
-        val habitDone = dao.observeHabitCompletions(date.toString()).first().count { it.completed }
+        val habitDone = dao.observeHabitCompletions(date.toString()).first().count { completion -> completion.completed && habits.any { it.id == completion.habitId } }
         val workoutDone = dao.completedWorkout(date.toString()) != null
         val old = dao.dailySummary(date.toString()) ?: emptySummary(date)
         val daily = QuestEngine.daily(

@@ -54,9 +54,10 @@ class AscendViewModel(application: Application, private val repository: AscendRe
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     private val _trainingBusy = MutableStateFlow(false)
     val trainingBusy = _trainingBusy.asStateFlow()
+    fun removeHabit(habit: HabitEntity) = changeTraining("Habit removed. Past completions and earned XP kept.") { repository.removeHabit(habit.id) }
     fun rebuildProgram(settings: ProgramSettings) = changeTraining { repository.training.rebuild(settings) }
     fun swapDays(first: LocalDate, second: LocalDate) = changeTraining { repository.training.swap(first, second) }
-    fun editPlanExercise(input: PlanExerciseEdit) = changeTraining { repository.training.editExercise(input.templateId, input.linkId, input.name, input.sets, input.min, input.max, input.remove) }
+    fun editPlanExercise(input: PlanExerciseEdit) = changeTraining { repository.training.editExercise(input.templateId, input.linkId, input.name, input.sets, input.min, input.max, input.remove, input.durationSeconds) }
     fun confirmProposal(id: String, accept: Boolean) = changeTraining(if (accept) "SYSTEM // Change confirmed" else "SYSTEM // Plan kept unchanged") { repository.confirmSystemProposal(id, accept) }
     private val _googleBusy = MutableStateFlow(false)
     val googleBusy = _googleBusy.asStateFlow()

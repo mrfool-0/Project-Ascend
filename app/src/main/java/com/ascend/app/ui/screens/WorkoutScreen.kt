@@ -173,8 +173,12 @@ private fun ExerciseCard(
             Text(detail.exercise.name, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
             IconButton(onClick = { onRemove(detail) }) { Icon(Icons.Outlined.DeleteOutline, "Remove ${detail.exercise.name}", tint = TextTertiary, modifier = Modifier.size(20.dp)) }
         }
-        Text("${sets.size} ${if (sets.size == 1) "set" else "sets"} · ${detail.link.minReps}–${detail.link.maxReps} reps", style = MaterialTheme.typography.bodySmall, color = EnergyCyan)
+        val timed = detail.link.durationSeconds > 0
+        Text(if (timed) "${detail.link.durationSeconds / 60} min · Timed cardio · Choose a comfortable pace" else "${sets.size} ${if (sets.size == 1) "set" else "sets"} · ${detail.link.minReps}–${detail.link.maxReps} reps", style = MaterialTheme.typography.bodySmall, color = EnergyCyan)
         Spacer(Modifier.height(12.dp))
+        if (timed) {
+            sets.forEach { set -> TimedSetRow(set, onUpdateSet) }
+        } else {
         Row(Modifier.fillMaxWidth()) {
             Text("SET", Modifier.width(44.dp), style = MaterialTheme.typography.labelMedium, color = TextSecondary)
             Text("KG", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = TextSecondary)
@@ -188,6 +192,21 @@ private fun ExerciseCard(
             Text("TARGET REPS REACHED", style = MaterialTheme.typography.labelMedium, color = EnergyEmerald)
             Text("Every set reached the target. Review your recent training in Progress before deciding on the next load.", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
         }
+        }
+    }
+}
+
+@Composable
+private fun TimedSetRow(set: WorkoutSetEntity, update: (WorkoutSetEntity, Double, Int, Boolean) -> Unit) {
+    var minutes by rememberSaveable(set.id, set.durationSeconds) { mutableStateOf(if (set.durationSeconds > 0) (set.durationSeconds / 60.0).toString() else "") }
+    val parsed = minutes.toDoubleOrNull()
+    val valid = parsed != null && parsed.isFinite() && parsed in (1.0 / 60.0)..120.0
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        OutlinedTextField(minutes, { if (it.length <= 6 && it.all { c -> c.isDigit() || c == '.' }) minutes = it },
+            label = { Text("Minutes completed") }, modifier = Modifier.weight(1f), enabled = !set.completed,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
+        Checkbox(set.completed, { update(set, 0.0, ((parsed ?: 0.0) * 60).toInt(), it) }, enabled = set.completed || valid,
+            modifier = Modifier.semantics { contentDescription = if (set.completed) "Unlock timed cardio" else "Complete timed cardio" })
     }
 }
 

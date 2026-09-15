@@ -91,6 +91,8 @@ interface AscendDao {
 
     @Query("SELECT * FROM habit WHERE active = 1 ORDER BY createdAt") fun observeHabits(): Flow<List<HabitEntity>>
     @Upsert suspend fun upsertHabit(value: HabitEntity)
+    @Query("SELECT COUNT(*) FROM habit") suspend fun habitCount(): Int
+    @Query("UPDATE habit SET active = 0 WHERE id = :id AND active = 1") suspend fun archiveHabit(id: String): Int
     @Query("SELECT * FROM habit_completion WHERE localDate = :date") fun observeHabitCompletions(date: String): Flow<List<HabitCompletionEntity>>
     @Query("SELECT * FROM habit_completion WHERE habitId = :habitId ORDER BY localDate") suspend fun habitHistory(habitId: String): List<HabitCompletionEntity>
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsertHabitCompletion(value: HabitCompletionEntity)

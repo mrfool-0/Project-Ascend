@@ -166,6 +166,7 @@ data class WorkoutExerciseEntity(
     val targetSets: Int,
     val minReps: Int,
     val maxReps: Int,
+    @androidx.room.ColumnInfo(defaultValue = "0") val durationSeconds: Int = 0,
 )
 
 @Entity(
@@ -199,6 +200,7 @@ data class WorkoutSetEntity(
     val reps: Int,
     val completed: Boolean,
     val completedAt: Long? = null,
+    @androidx.room.ColumnInfo(defaultValue = "0") val durationSeconds: Int = 0,
 )
 
 @Entity(tableName = "habit")

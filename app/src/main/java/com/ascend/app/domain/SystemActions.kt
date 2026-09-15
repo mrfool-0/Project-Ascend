@@ -1,6 +1,6 @@
 package com.ascend.app.domain
 
-enum class SystemActionType { NONE, CREATE_HABIT, CREATE_QUEST, UPDATE_HABIT, SWAP_DAYS, ADD_EXERCISE, UPDATE_EXERCISE, REMOVE_EXERCISE }
+enum class SystemActionType { NONE, CREATE_HABIT, CREATE_QUEST, UPDATE_HABIT, REMOVE_HABIT, SWAP_DAYS, ADD_EXERCISE, UPDATE_EXERCISE, REMOVE_EXERCISE, SET_ALL_STRENGTH_SETS, ADD_EXERCISE_ALL }
 
 data class SystemAction(
     val type: SystemActionType,
@@ -18,6 +18,7 @@ data class SystemAction(
     val sets: Int = 3,
     val minReps: Int = 8,
     val maxReps: Int = 12,
+    val durationSeconds: Int = 0,
 )
 
 data class SystemReply(val message: String, val action: SystemAction = SystemAction(SystemActionType.NONE))
@@ -51,7 +52,7 @@ object SystemCommandParser {
         }
         return null
     }
-    fun mayPropose(message: String) = !hypotheticalOpening.containsMatchIn(message.trim()) && !Regex("\\b(do not|don't|dont|never)\\s+(?:want to\\s+)?(add|create|change|edit|update|swap|move)\\b", RegexOption.IGNORE_CASE).containsMatchIn(message)
+    fun mayPropose(message: String) = !hypotheticalOpening.containsMatchIn(message.trim()) && !Regex("\\b(do not|don't|dont|never)\\s+(?:want to\\s+)?(add|create|change|edit|update|swap|move|remove|delete)\\b", RegexOption.IGNORE_CASE).containsMatchIn(message)
     private val createWords = Regex("\\b(add|create|make|set|build|customi[sz]e)\\b", RegexOption.IGNORE_CASE)
     private val targetPattern = Regex("(\\d+(?:\\.\\d+)?)\\s*(steps?|minutes?|mins?|hours?|hrs?|ml|lit(?:er|re)s?|glasses?|reps?|pages?)", RegexOption.IGNORE_CASE)
     private val cadencePattern = Regex("\\b(every day|daily|on weekdays|weekdays|three times (?:a|per) week|3x (?:a|per) week)\\b", RegexOption.IGNORE_CASE)
@@ -74,7 +75,9 @@ object SystemCommandParser {
         val createMatch = createWords.find(clean.substring(0, markerIndex))
         val beforeMarker = createMatch?.let { clean.substring(it.range.last + 1, markerIndex) }.orEmpty()
             .replace(Regex("^\\s*(a|an|one|new|my)\\b", RegexOption.IGNORE_CASE), "")
-        val candidate = afterMarker.takeIf { it.trim().length >= 3 } ?: beforeMarker
+        val meaningfulAfter = afterMarker.replace(cadencePattern, "").replace(targetPattern, "")
+            .replace(Regex("\\b(for|to|of|on|a|an|one|new|my)\\b", RegexOption.IGNORE_CASE), "").trim()
+        val candidate = afterMarker.takeIf { meaningfulAfter.length >= 3 } ?: beforeMarker
         val targetMatch = targetPattern.find(clean)
         val actionName = candidate
             .replace(cadencePattern, "")

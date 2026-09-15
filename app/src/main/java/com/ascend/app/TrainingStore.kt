@@ -29,6 +29,46 @@ data class ProgramSettings(
 
 class TrainingStore(private val database: AscendDatabase) {
     private val dao get() = database.dao()
+    suspend fun bulkTargets(action: SystemAction): List<WorkoutTemplateEntity> {
+        require(action.type in setOf(SystemActionType.SET_ALL_STRENGTH_SETS, SystemActionType.ADD_EXERCISE_ALL))
+        require(action.sets in 1..10) { "Use 1–10 working sets." }
+        if (action.type == SystemActionType.ADD_EXERCISE_ALL) {
+            require(action.name.trim().length in 2..80)
+            require(action.durationSeconds in 60..7200) { "A timed block needs a duration of 1–120 minutes." }
+        }
+        return dao.observeTemplates().first().filter { template ->
+            template.active && !template.isRecovery && dao.templateExercises(template.id).let { details ->
+                if (action.type == SystemActionType.ADD_EXERCISE_ALL) details.none { it.exercise.name.equals(action.name.trim(), true) }
+                else details.any { it.link.durationSeconds == 0 && it.link.targetSets != action.sets }
+            }
+        }
+    }
+
+    /** One atomic change across the active program, with a single new version per protocol. */
+    suspend fun applyBulk(action: SystemAction): Int = database.withTransaction {
+        val targets = bulkTargets(action)
+        require(targets.isNotEmpty()) { "Your active protocols already match this request." }
+        targets.forEach { template ->
+            val cloneId = UUID.randomUUID().toString()
+            val details = dao.templateExercises(template.id)
+            dao.upsertTemplates(listOf(template.copy(active = false), template.copy(id = cloneId)))
+            val links = details.map { detail ->
+                detail.link.copy(id = UUID.randomUUID().toString(), templateId = cloneId,
+                    targetSets = if (action.type == SystemActionType.SET_ALL_STRENGTH_SETS && detail.link.durationSeconds == 0) action.sets else detail.link.targetSets)
+            }.toMutableList()
+            if (action.type == SystemActionType.ADD_EXERCISE_ALL) {
+                val exerciseId = UUID.randomUUID().toString()
+                dao.upsertExercises(listOf(ExerciseEntity(exerciseId, action.name.trim(), "Cardio", "CARDIO")))
+                links += WorkoutExerciseEntity(UUID.randomUUID().toString(), cloneId, exerciseId, links.size, 1, 1, 1, action.durationSeconds)
+            }
+            dao.upsertWorkoutExercises(links)
+            val minutes = 12 + links.sumOf { if (it.durationSeconds > 0) (it.durationSeconds + 59) / 60 * it.targetSets else it.targetSets * 2 }
+            dao.upsertTemplates(listOf(template.copy(id = cloneId, estimatedMinutes = minutes)))
+            dao.upsertDayOverrides(dao.observeDayOverrides().first().filter { it.localDate >= LocalDate.now().toString() && it.templateId == template.id }.map { it.copy(templateId = cloneId) })
+        }
+        dao.supersedeProposals()
+        targets.size
+    }
     suspend fun day(date: LocalDate) = TrainingSchedule.resolve(dao.observeProfile().first(), dao.observeTemplates().first(), dao.observeDayOverrides().first(), dao.observeWorkoutHistory().first(), date)
     suspend fun swap(first: LocalDate, second: LocalDate, today: LocalDate = LocalDate.now()) = database.withTransaction {
         WeekRules.validateSwap(first, second, today)
@@ -38,7 +78,7 @@ class TrainingStore(private val database: AscendDatabase) {
         listOf(first, second).forEach { date ->
             dao.latestWorkout(date.toString())?.let { session ->
                 val sets = dao.observeWorkoutSets(session.id).first()
-                require(session.completedAt == null && sets.none { it.completed || it.reps > 0 || it.weightKg > 0 }) {
+                require(session.completedAt == null && sets.none { it.completed || it.reps > 0 || it.weightKg > 0 || it.durationSeconds > 0 }) {
                     "A session on $date already has recorded work. Its history cannot be moved."
                 }
                 dao.deleteWorkoutSession(session.id) // Untouched shells only; never recorded work.
@@ -68,11 +108,13 @@ class TrainingStore(private val database: AscendDatabase) {
         dao.supersedeProposals()
     }
     /** Fork a template before editing so historical sessions keep the original prescription. */
-    suspend fun editExercise(templateId: String, linkId: String?, name: String, sets: Int, min: Int, max: Int, remove: Boolean = false) = database.withTransaction {
+    suspend fun editExercise(templateId: String, linkId: String?, name: String, sets: Int, min: Int, max: Int, remove: Boolean = false, durationSeconds: Int? = null) = database.withTransaction {
         val template = dao.templateById(templateId) ?: error("Protocol no longer exists.")
         require(template.active && !template.isRecovery) { "Choose an active training protocol." }
         if (!remove) require(WorkoutInputRules.isValidExercise(name, sets, min, max)) { "Use a 2–80 character name, 1–10 sets, and 1–100 reps." }
         val details = dao.templateExercises(templateId)
+        val duration = durationSeconds ?: details.find { it.link.id == linkId }?.link?.durationSeconds ?: 0
+        require(duration == 0 || duration in 60..7200) { "Timed cardio must be 1–120 minutes." }
         require(linkId == null || details.any { it.link.id == linkId }) { "Exercise changed. Reopen the editor." }
         require(!remove || (linkId != null && details.size > 1)) { "Keep at least one exercise in a training protocol." }
         val cloneId = UUID.randomUUID().toString()
@@ -83,17 +125,17 @@ class TrainingStore(private val database: AscendDatabase) {
             if (detail.link.id == linkId) {
                 val exerciseId = UUID.randomUUID().toString()
                 dao.upsertExercises(listOf(detail.exercise.copy(id = exerciseId, name = name.trim())))
-                dao.upsertWorkoutExercises(listOf(detail.link.copy(id = UUID.randomUUID().toString(), templateId = cloneId, exerciseId = exerciseId, orderIndex = order++, targetSets = sets, minReps = min, maxReps = max)))
+                dao.upsertWorkoutExercises(listOf(detail.link.copy(id = UUID.randomUUID().toString(), templateId = cloneId, exerciseId = exerciseId, orderIndex = order++, targetSets = sets, minReps = min, maxReps = max, durationSeconds = duration)))
             } else dao.upsertWorkoutExercises(listOf(detail.link.copy(id = UUID.randomUUID().toString(), templateId = cloneId, orderIndex = order++)))
         }
         if (linkId == null && !remove) {
             val exId = UUID.randomUUID().toString()
             dao.upsertExercises(listOf(ExerciseEntity(exId, name.trim(), "Custom", "CUSTOM")))
-            dao.upsertWorkoutExercises(listOf(WorkoutExerciseEntity(UUID.randomUUID().toString(), cloneId, exId, order, sets, min, max)))
+            dao.upsertWorkoutExercises(listOf(WorkoutExerciseEntity(UUID.randomUUID().toString(), cloneId, exId, order, sets, min, max, duration)))
         }
         val updated = dao.observeDayOverrides().first().filter { it.localDate >= LocalDate.now().toString() && it.templateId == templateId }.map { it.copy(templateId = cloneId) }
         dao.upsertDayOverrides(updated)
-        val minutes = 12 + dao.templateExercises(cloneId).sumOf { it.link.targetSets } * 2
+        val minutes = 12 + dao.templateExercises(cloneId).sumOf { if (it.link.durationSeconds > 0) (it.link.durationSeconds + 59) / 60 * it.link.targetSets else it.link.targetSets * 2 }
         dao.upsertTemplates(listOf(template.copy(id = cloneId, estimatedMinutes = minutes)))
         dao.supersedeProposals()
     }

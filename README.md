@@ -62,6 +62,8 @@ Version 1.8's architecture changes, verification and remaining setup requirement
 
 Version 1.8.2 fixes the post-account-selection hang: bounded authentication and backup waits, distinct connection stages, persistent backup status, and non-blocking local logging. The approved Mumbai Firestore database and private rules are now configured. See [Firebase setup and verification](FIREBASE_SETUP.md) for tested behavior and remaining physical-device verification.
 
+Version 1.9.0 adds confirmed program-wide set changes, timed treadmill blocks with duration clarification, greeting handling, and habit removal with preserved history. Online AI errors are visible; a live Gemini encouragement probe passed on September 15 after an initial server failure. See [SYSTEM repair verification and limits](docs/SYSTEM_1_9_REPAIR.md). This remains a development-signed APK, not a Play Store production release.
+
 ## Architecture
 
 ```text
@@ -84,7 +86,7 @@ Room owns structured health/progression records. DataStore owns lightweight pref
 
 ## Database
 
-Schema 6 includes user profile and nutrition target, foods/logs/saved meals, weight and body measurements, versioned exercises/templates/sessions/sets, date-specific workout overrides, durable SYSTEM proposals, habits/completions, scheduled quests/completions, XP transactions, achievements/unlocks, and daily summaries. Non-destructive migrations preserve older installations.
+Schema 7 includes user profile and nutrition target, foods/logs/saved meals, weight and body measurements, versioned exercises/templates/sessions/sets (including timed cardio duration), date-specific workout overrides, durable SYSTEM proposals, habits/completions, scheduled quests/completions, XP transactions, achievements/unlocks, and daily summaries. Non-destructive migrations preserve older installations.
 
 Daily records use a local calendar date string (`YYYY-MM-DD`) in addition to an event timestamp. This preserves the day the user intended even if their timezone changes later.
 

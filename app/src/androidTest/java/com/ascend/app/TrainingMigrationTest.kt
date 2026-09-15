@@ -40,7 +40,7 @@ class TrainingMigrationTest {
             sqlite.execSQL("INSERT INTO workout_set VALUES ('set','session','row',1,10,8,1,1)")
             sqlite.version = 4
         }
-        val db = Room.databaseBuilder(context, AscendDatabase::class.java, name).addMigrations(AscendDatabase.MIGRATION_4_5, AscendDatabase.MIGRATION_5_6).build()
+        val db = Room.databaseBuilder(context, AscendDatabase::class.java, name).addMigrations(AscendDatabase.MIGRATION_4_5, AscendDatabase.MIGRATION_5_6, AscendDatabase.MIGRATION_6_7).build()
         try {
             val profile = requireNotNull(db.dao().observeProfile().first())
             assertEquals("TEST", profile.displayName)

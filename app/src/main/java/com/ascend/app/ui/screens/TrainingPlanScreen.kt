@@ -24,7 +24,7 @@ import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
-data class PlanExerciseEdit(val templateId: String, val linkId: String?, val name: String, val sets: Int, val min: Int, val max: Int, val remove: Boolean = false)
+data class PlanExerciseEdit(val templateId: String, val linkId: String?, val name: String, val sets: Int, val min: Int, val max: Int, val remove: Boolean = false, val durationSeconds: Int = 0)
 
 @Composable
 fun TrainingPlanScreen(
@@ -87,9 +87,9 @@ fun TrainingPlanScreen(
             AscendCard(Modifier.fillMaxWidth()) {
                 Text(ex?.muscleGroup?.uppercase().orEmpty(), style = MaterialTheme.typography.labelSmall, color = EnergyCyan)
                 Text(ex?.name.orEmpty(), style = MaterialTheme.typography.titleMedium)
-                Text(link.targetSets.toString() + " sets × " + link.minReps + "–" + link.maxReps + " reps", color = TextSecondary)
+                Text(if (link.durationSeconds > 0) "${link.durationSeconds / 60} min · Timed cardio" else link.targetSets.toString() + " sets × " + link.minReps + "–" + link.maxReps + " reps", color = TextSecondary)
                 Row {
-                    TextButton(enabled = !busy, onClick = { editing = PlanExerciseEdit(link.templateId, link.id, ex?.name.orEmpty(), link.targetSets, link.minReps, link.maxReps) }) { Text("Edit prescription") }
+                    TextButton(enabled = !busy, onClick = { editing = PlanExerciseEdit(link.templateId, link.id, ex?.name.orEmpty(), link.targetSets, link.minReps, link.maxReps, durationSeconds = link.durationSeconds) }) { Text("Edit prescription") }
                     TextButton(enabled = !busy, onClick = { editing = PlanExerciseEdit(link.templateId, link.id, ex?.name.orEmpty(), link.targetSets, link.minReps, link.maxReps, true) }) { Text("Remove", color = EnergyCrimson) }
                 }
             }
@@ -174,16 +174,17 @@ private fun <T : Enum<T>> ChoiceMenu(label: String, selected: T, values: List<T>
 private fun ExerciseEditor(input: PlanExerciseEdit, dismiss: () -> Unit, save: (PlanExerciseEdit) -> Unit) {
     var name by remember { mutableStateOf(input.name) }; var sets by remember { mutableStateOf(input.sets.toString()) }
     var min by remember { mutableStateOf(input.min.toString()) }; var max by remember { mutableStateOf(input.max.toString()) }
+    var minutes by remember { mutableStateOf((input.durationSeconds / 60).toString()) }
     AlertDialog(onDismissRequest = dismiss, title = { Text(if (input.remove) "Remove exercise?" else "Exercise prescription") },
         text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (input.remove) Text(input.name + " will be removed from future sessions. Past logs stay intact.") else {
                 OutlinedTextField(name, { name = it.take(80) }, label = { Text("Exercise name") })
-                listOf(Triple("Sets", sets, { v: String -> sets = v }), Triple("Min reps", min, { v: String -> min = v }), Triple("Max reps", max, { v: String -> max = v })).forEach { (label, value, update) ->
+                (if (input.durationSeconds > 0) listOf(Triple("Minutes", minutes, { v: String -> minutes = v })) else listOf(Triple("Sets", sets, { v: String -> sets = v }), Triple("Min reps", min, { v: String -> min = v }), Triple("Max reps", max, { v: String -> max = v }))).forEach { (label, value, update) ->
                     OutlinedTextField(value, { if (it.length <= 3 && it.all(Char::isDigit)) update(it) }, label = { Text(label) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                 }
             }
         } },
-        confirmButton = { TextButton(enabled = input.remove || WorkoutInputRules.isValidExercise(name, sets.toIntOrNull(), min.toIntOrNull(), max.toIntOrNull()),
-            onClick = { save(input.copy(name = name, sets = sets.toIntOrNull() ?: input.sets, min = min.toIntOrNull() ?: input.min, max = max.toIntOrNull() ?: input.max)) }) { Text(if (input.remove) "Remove" else "Save prescription") } },
+        confirmButton = { TextButton(enabled = input.remove || (if (input.durationSeconds > 0) name.trim().length in 2..80 && minutes.toIntOrNull() in 1..120 else WorkoutInputRules.isValidExercise(name, sets.toIntOrNull(), min.toIntOrNull(), max.toIntOrNull())),
+            onClick = { save(input.copy(name = name, sets = sets.toIntOrNull() ?: input.sets, min = min.toIntOrNull() ?: input.min, max = max.toIntOrNull() ?: input.max, durationSeconds = if (input.durationSeconds > 0) (minutes.toIntOrNull() ?: 1) * 60 else 0)) }) { Text(if (input.remove) "Remove" else "Save prescription") } },
         dismissButton = { TextButton(onClick = dismiss) { Text("Cancel") } })
 }

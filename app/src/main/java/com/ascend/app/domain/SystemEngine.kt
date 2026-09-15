@@ -41,6 +41,7 @@ data class SystemExercisePrescription(
     val sets: Int,
     val minReps: Int,
     val maxReps: Int,
+    val durationSeconds: Int = 0,
 )
 
 /**
@@ -60,6 +61,8 @@ object SystemEngine {
         if (raw.isBlank()) return "NO SIGNAL DETECTED. Transmit a question and I will calculate the next useful action."
 
         val input = raw.normalized()
+        // Greetings are whole utterances, not a fuzzy substring ('hi' must not match 'this').
+        if (Regex("^(hi+|hello+|hey+|hello there|hi system|hey system|hello system)[!. ]*$").matches(input)) return greetingResponse(context, selectedTone)
         val resolvedInput = resolveFollowUp(input, context.recentPlayerMessages)
         val tone = requestedTone(input) ?: selectedTone
 
@@ -166,7 +169,7 @@ object SystemEngine {
     private fun workoutResponse(context: SystemContext, tone: SystemTone): String {
         val limitation = context.injuries.activeDescription()
         val focus = context.focusAreas.readableList().ifBlank { "your selected objective" }
-        val prescription = context.todayExercises.joinToString(" · ") { "${it.name} ${it.sets}×${it.minReps}–${it.maxReps}" }
+        val prescription = context.todayExercises.joinToString(" · ") { if (it.durationSeconds > 0) "${it.name} ${it.durationSeconds / 60} min" else "${it.name} ${it.sets}×${it.minReps}–${it.maxReps}" }
             .ifBlank { "Recovery movement only" }
         val base = "TODAY'S PROTOCOL: ${context.todayWorkout}. $prescription. It supports $focus; warm up gradually and keep 2–3 reps in reserve on early sets."
         val safety = if (limitation == null) "Stop if a movement causes sharp or unusual pain." else "Your reported limitation is $limitation; use the programmed substitution and stop any painful movement."

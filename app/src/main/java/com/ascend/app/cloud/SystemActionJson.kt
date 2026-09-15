@@ -9,11 +9,12 @@ object SystemActionJson {
         put("frequency", a.frequency.name); put("difficulty", a.difficulty.name); put("category", a.category.name); put("reward", a.rewardXp)
         put("entity", a.entityId); put("template", a.templateId); put("from", a.fromDate); put("to", a.toDate)
         put("sets", a.sets); put("min", a.minReps); put("max", a.maxReps)
+        put("duration", a.durationSeconds)
     }.toString()
     fun decode(value: String): SystemAction = JSONObject(value).let {
         SystemAction(SystemActionType.valueOf(it.getString("type")), it.getString("name"), it.getDouble("target"), it.getString("unit"),
             HabitFrequency.valueOf(it.getString("frequency")), HabitDifficulty.valueOf(it.getString("difficulty")),
             QuestCategory.valueOf(it.getString("category")), it.getInt("reward"), it.getString("entity"), it.getString("template"),
-            it.getString("from"), it.getString("to"), it.getInt("sets"), it.getInt("min"), it.getInt("max"))
+            it.getString("from"), it.getString("to"), it.getInt("sets"), it.getInt("min"), it.getInt("max"), it.optInt("duration", 0))
     }
 }

@@ -20,8 +20,14 @@ import com.google.firebase.ai.type.generationConfig
 import com.google.firebase.ai.type.thinkingConfig
 import com.google.firebase.ai.type.ThinkingLevel
 import org.json.JSONObject
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 class SystemAiService(private val context: Context) {
+    private val _connection = MutableStateFlow("Online AI not yet checked")
+    val connection = _connection.asStateFlow()
+    fun reportTimeout() { _connection.value = "AI_TIMEOUT · Online AI took too long; limited offline replies are active." }
     val isConfigured: Boolean
         get() = FirebaseApp.initializeApp(context) != null
 
@@ -44,6 +50,7 @@ class SystemAiService(private val context: Context) {
                 "from_date" to Schema.string("For SWAP_DAYS, first date in YYYY-MM-DD; otherwise empty"),
                 "to_date" to Schema.string("For SWAP_DAYS, second date in YYYY-MM-DD; otherwise empty"),
                 "sets" to Schema.integer("Working sets, 1 through 10; default 3"),
+                "duration_seconds" to Schema.integer("Timed cardio duration: 60 through 7200 seconds, or 0 for strength. Ask for minutes if missing."),
                 "min_reps" to Schema.integer("Minimum repetitions, 1 through 100; default 8"),
                 "max_reps" to Schema.integer("Maximum repetitions, min_reps through 100; default 12"),
                 "action_name" to Schema.string("Short habit or quest name; empty when action_type is NONE"),
@@ -56,7 +63,7 @@ class SystemAiService(private val context: Context) {
             ),
         )
         val model = Firebase.ai(backend = GenerativeBackend.googleAI()).generativeModel(
-            modelName = "gemini-3.7-flash",
+            modelName = "gemini-3.8-flash",
             generationConfig = generationConfig {
                 maxOutputTokens = 4096
                 thinkingConfig = thinkingConfig { thinkingLevel = ThinkingLevel.LOW }
@@ -87,9 +94,25 @@ class SystemAiService(private val context: Context) {
         val answer = model.startChat(history = history).sendMessage(userTurn).text?.trim()
         check(!answer.isNullOrBlank()) { "SYSTEM returned an empty response" }
         parseReply(answer)
-    }.onFailure {
+    }.onSuccess { _connection.value = "Online AI connected · Gemini" }.onFailure {
+        if (it is CancellationException) throw it
+        _connection.value = failureStatus(it)
         // Class names only: never log player messages, model output, tokens or API keys.
         if (com.ascend.app.BuildConfig.DEBUG) android.util.Log.w("AscendSystem", "AI failure: " + it.javaClass.simpleName)
+    }
+
+    companion object {
+        fun failureStatus(failure: Throwable): String {
+            val text = generateSequence(failure) { it.cause }.take(5).joinToString(" ") { it.javaClass.simpleName + " " + it.message.orEmpty() }.lowercase()
+            return when {
+                "429" in text || "quota" in text || "resource_exhausted" in text -> "AI_QUOTA · Online AI quota reached. Retry later; the publisher must check project limits."
+                "403" in text || "permission" in text || "api key" in text || "app check" in text -> "AI_ACCESS · Online AI access denied. Check Firebase AI Logic, API restrictions and App Check."
+                "404" in text || "not found" in text -> "AI_MODEL · The configured model is unavailable for this project."
+                "json" in text || "serialization" in text -> "AI_RESPONSE · Invalid online response. Please retry."
+                "network" in text || "host" in text || "connect" in text -> "AI_NETWORK · Online AI is unreachable. Check your connection."
+                else -> "AI_UNAVAILABLE · Online AI failed. Limited offline replies are active."
+            }
+        }
     }
 
     private fun parseReply(json: String): SystemReply {
@@ -117,6 +140,7 @@ class SystemAiService(private val context: Context) {
                 fromDate = value.optString("from_date").take(10),
                 toDate = value.optString("to_date").take(10),
                 sets = value.optInt("sets", 3), minReps = value.optInt("min_reps", 8), maxReps = value.optInt("max_reps", 12),
+                durationSeconds = value.optInt("duration_seconds", 0),
             ),
         )
     }
@@ -177,6 +201,13 @@ class SystemAiService(private val context: Context) {
             # ACTION PROTOCOL
             You propose actions; the app displays a preview and only executes after confirmation.
             Never claim anything was changed, added or saved before a confirmed action receipt.
+            Match action DOMAIN and SCOPE exactly. Treadmill in workout sessions is an EXERCISE, never
+            a habit unless explicitly requested as a habit. 'All sessions' means every active non-recovery
+            protocol, not just today. SET_ALL_STRENGTH_SETS changes only working-set counts across all
+            strength exercises, preserving reps and timed cardio. ADD_EXERCISE_ALL adds a timed cardio
+            block to all training protocols; supply duration_seconds and name. Ask for minutes if missing.
+            REMOVE_HABIT removes the exact active habit ID while preserving its completion history.
+            Resolve '10 minutes' against your preceding clarification. Greet Hi/Hello naturally and briefly.
             CREATE_HABIT / CREATE_QUEST: explicit creation request. UPDATE_HABIT: exact existing habit ID,
             with all unchanged fields copied from current data. ADD_EXERCISE / UPDATE_EXERCISE /
             REMOVE_EXERCISE: exact active template ID, and existing exercise-link ID when editing/removing.
@@ -205,7 +236,7 @@ class SystemAiService(private val context: Context) {
             Workout frequency: ${context.workoutFrequency} days/week
             Weekly split: ${context.weeklySplit.ifBlank { "frequency optimized" }}
             Today's workout: ${context.todayWorkout}
-            Today's exact prescription: ${context.todayExercises.joinToString("; ") { "${it.name}: ${it.sets} sets of ${it.minReps}-${it.maxReps} reps" }.ifBlank { "recovery only" }}
+            Today's exact prescription: ${context.todayExercises.joinToString("; ") { if (it.durationSeconds > 0) "${it.name}: ${it.sets} timed blocks of ${it.durationSeconds / 60} minutes" else "${it.name}: ${it.sets} sets of ${it.minReps}-${it.maxReps} reps" }.ifBlank { "recovery only" }}
             Tomorrow's workout: ${context.tomorrowWorkout}
             Calories: ${context.caloriesLogged}/${context.calorieTarget} kcal
             Protein: ${context.proteinLogged}/${context.proteinTarget} g

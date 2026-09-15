@@ -4,6 +4,13 @@ import kotlin.test.Test
 import kotlin.test.assertTrue
 
 class SystemEngineTest {
+    @Test fun `simple greetings answer naturally without workout reports`() {
+        for (message in listOf("Hi", "hi!", "hello", "Hey system")) {
+            val reply = SystemEngine.respond(message, context)
+            assertTrue(reply.contains("SYSTEM ONLINE"))
+            assertTrue(!reply.contains("TODAY'S PROTOCOL"))
+        }
+    }
     private val context = SystemContext(
         playerName = "Nova",
         objective = Objective.GENERAL_HEALTH,

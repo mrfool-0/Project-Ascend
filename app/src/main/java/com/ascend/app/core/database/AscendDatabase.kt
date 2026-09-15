@@ -19,7 +19,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SystemMessageEntity::class,
         WorkoutDayOverrideEntity::class, SystemProposalEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 abstract class AscendDatabase : RoomDatabase() {
@@ -30,7 +30,7 @@ abstract class AscendDatabase : RoomDatabase() {
 
         fun create(context: Context): AscendDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(context.applicationContext, AscendDatabase::class.java, "ascend.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                 .build()
                 .also { instance = it }
         }
@@ -84,6 +84,12 @@ abstract class AscendDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE quest ADD COLUMN frequency TEXT NOT NULL DEFAULT 'EVERY_DAY'")
                 db.execSQL("UPDATE quest SET frequency = 'WEEKDAYS' WHERE id LIKE 'custom_%' AND description LIKE '%weekdays%'")
                 db.execSQL("UPDATE quest SET frequency = 'THREE_TIMES_WEEKLY' WHERE id LIKE 'custom_%' AND description LIKE '%three times%'")
+            }
+        }
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE workout_exercise ADD COLUMN durationSeconds INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE workout_set ADD COLUMN durationSeconds INTEGER NOT NULL DEFAULT 0")
             }
         }
     }

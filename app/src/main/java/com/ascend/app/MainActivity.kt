@@ -245,7 +245,7 @@ private fun MainNavigation(viewModel: AscendViewModel, preferences: com.ascend.a
                     )
                 }
                 composable("progress") { ProgressScreen(state, templates, { navController.popBackStack() }, viewModel::logWeight) }
-                composable(MainDestination.HABITS.route) { HabitsScreen(state, habits, viewModel::toggleHabit, viewModel::createHabit) }
+                composable(MainDestination.HABITS.route) { HabitsScreen(state, habits, viewModel::toggleHabit, viewModel::createHabit, viewModel::removeHabit) }
                 composable(MainDestination.SYSTEM.route) { SystemScreen(state, systemMessages, systemThinking, viewModel::sendSystemMessage, viewModel::clearSystemMessages,
                     pendingProposal, trainingBusy, viewModel::confirmProposal, { navController.navigate("training") }) }
                 composable("training") {

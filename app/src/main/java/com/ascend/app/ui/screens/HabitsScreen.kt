@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -40,8 +41,10 @@ fun HabitsScreen(
     allHabits: List<HabitEntity>,
     onToggle: (HabitEntity, Boolean) -> Unit,
     onCreate: (NewHabitInput) -> Unit,
+    onRemove: (HabitEntity) -> Unit = {},
 ) {
     var showCreate by remember { mutableStateOf(false) }
+    var removing by remember { mutableStateOf<HabitEntity?>(null) }
     val scheduledIds = state.habits.mapTo(mutableSetOf()) { it.id }
     val completed = state.habitCompletions.size
     val planned = state.habits.size
@@ -79,7 +82,7 @@ fun HabitsScreen(
             items(allHabits, key = { it.id }) { habit ->
                 val scheduled = habit.id in scheduledIds
                 val complete = habit.id in state.habitCompletions
-                Box(Modifier.animateItem()) { HabitPanel(habit, scheduled, complete) { if (scheduled) onToggle(habit, it) } }
+                Box(Modifier.animateItem()) { HabitPanel(habit, scheduled, complete, { removing = habit }) { if (scheduled) onToggle(habit, it) } }
             }
         }
     }
@@ -87,17 +90,23 @@ fun HabitsScreen(
         onCreate(it)
         showCreate = false
     }
+    removing?.let { habit ->
+        AlertDialog(onDismissRequest = { removing = null }, title = { Text("Remove habit?") },
+            text = { Text("${habit.name} will leave your active habits and future reminders. Past completions and earned XP will be kept.") },
+            confirmButton = { TextButton(onClick = { onRemove(habit); removing = null }) { Text("Remove habit", color = EnergyCrimson) } },
+            dismissButton = { TextButton(onClick = { removing = null }) { Text("Keep habit") } })
+    }
 }
 
 @Composable
-private fun HabitPanel(habit: HabitEntity, scheduled: Boolean, complete: Boolean, onToggle: (Boolean) -> Unit) {
+private fun HabitPanel(habit: HabitEntity, scheduled: Boolean, complete: Boolean, onRemove: () -> Unit, onToggle: (Boolean) -> Unit) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,
         color = RaisedSurface.copy(.74f),
         border = androidx.compose.foundation.BorderStroke(.75.dp, if (complete) EnergyEmerald.copy(.35f) else Hairline),
         onClick = { if (scheduled) onToggle(!complete) },
-        enabled = scheduled,
+        enabled = true,
     ) {
         Row(Modifier.padding(horizontal = 15.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
             Checkbox(
@@ -116,6 +125,7 @@ private fun HabitPanel(habit: HabitEntity, scheduled: Boolean, complete: Boolean
                 )
             }
             StatusPill(if (complete) "Done" else if (scheduled) "Today" else "Rest", if (complete) EnergyEmerald else if (scheduled) EnergyCyan else TextTertiary)
+            IconButton(onClick = onRemove) { Icon(Icons.Outlined.DeleteOutline, "Remove ${habit.name}", tint = TextTertiary) }
         }
     }
 }

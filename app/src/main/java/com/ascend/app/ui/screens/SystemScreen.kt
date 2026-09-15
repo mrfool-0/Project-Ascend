@@ -54,6 +54,8 @@ fun SystemScreen(
     onConfirm: (String, Boolean) -> Unit = { _, _ -> },
     onTraining: () -> Unit = {},
 ) {
+    val ai = (androidx.compose.ui.platform.LocalContext.current.applicationContext as com.ascend.app.AscendApplication).systemAi
+    val aiConnection by ai.connection.collectAsState()
     var input by rememberSaveable { mutableStateOf("") }
     var toneName by rememberSaveable { mutableStateOf(SystemTone.DIRECT.name) }
     var showInfo by remember { mutableStateOf(false) }
@@ -100,6 +102,9 @@ fun SystemScreen(
                 )
             }
         }
+
+        if (aiConnection.startsWith("AI_")) Text(aiConnection,
+            Modifier.padding(horizontal = 24.dp, vertical = 6.dp), style = MaterialTheme.typography.bodySmall, color = EnergyAmber)
 
         Row(
             Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 10.dp),
@@ -222,6 +227,7 @@ fun SystemScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = TextSecondary,
                 )
+                Text(aiConnection, style = MaterialTheme.typography.bodySmall, color = EnergyCyan)
                 Spacer(Modifier.height(18.dp))
                 SystemButton("Got it", { showInfo = false }, Modifier.fillMaxWidth())
             }
